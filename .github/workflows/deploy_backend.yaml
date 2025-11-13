@@ -1,0 +1,100 @@
+name: Deploy Backend
+on:
+  workflow_dispatch:
+    inputs:
+      app_name:
+        description: Name of the application
+        required: true
+        type: string
+        default: trading
+      environment:
+        description: Deployment
+        required: true
+        type: choice
+        default: dev
+        options:
+          - dev
+          - stg
+          - prd
+permissions:
+  id-token: write
+  contents: read
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    outputs:
+      version: ${{ steps.gitversion.outputs.major }}.${{ steps.gitversion.outputs.minor }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/github
+          aws-region: us-west-2
+      - name: Install GitVersion
+        uses: gittools/actions/gitversion/setup@v0.11.0
+        with:
+          versionSpec: '5.x'
+      - name: Run GitVersion
+        id: gitversion
+        uses: gittools/actions/gitversion/execute@v0.11.0
+      - name: Show GitVersion
+        run: |
+          echo "VERSION=${{ steps.gitversion.outputs.major }}.${{ steps.gitversion.outputs.minor }}" | tee version.txt
+      - name: Upload Version artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: version
+          path: ./version.txt
+  build:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    needs: prepare
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: |
+          docker build --file ./lambda_download_info/Dockerfile ./lambda_download_info
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    needs: [prepare, build]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/github
+          aws-region: us-west-2
+      - name: Login Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v1
+      - name: Build and push
+        continue-on-error: true
+        env:
+          ECR_REGISTRY: ${{ steps.ecr.outputs.registry }}
+          ECR_REPOSITORY: "${{ inputs.environment }}-${{ inputs.app_name }}-download-info"
+          IMAGE_TAG: ${{ needs.prepare.outputs.version }}
+        run: |
+          docker build --file ./lambda_download_info/Dockerfile -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG ./lambda_download_info
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+      - name: Install Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.10.5
+      - name: Install Terragrunt
+        uses: autero1/action-terragrunt@v3
+        with:
+          terragrunt-version: 0.80.4
+      - name: Run Terraform
+        run: ./.github/scripts/deploy_backend.sh
+        env:
+          APP_NAME: ${{ inputs.app_name }}
+          APP_VERSION: ${{ needs.prepare.outputs.version }}
+          AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+          ENVIRONMENT: ${{ inputs.environment }}
+          TF_BUCKET: ${{ inputs.environment }}-${{ inputs.app_name }}-tf

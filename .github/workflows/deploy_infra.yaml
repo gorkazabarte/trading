@@ -1,0 +1,55 @@
+name: Deploy Infrastructure
+on:
+  workflow_dispatch:
+    inputs:
+      app_name:
+        description: Name of the application
+        required: true
+        type: string
+        default: trading
+      environment:
+        description: Deployment
+        required: true
+        type: choice
+        default: dev
+        options:
+          - dev
+          - stg
+          - prd
+permissions:
+  id-token: write
+  contents: read
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/github
+          aws-region: us-west-2
+      - name: Install Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.10.5
+      - name: Install Terragrunt
+        uses: autero1/action-terragrunt@v3
+        with:
+          terragrunt-version: 0.80.4
+      - name: Create Terraform bucket
+        run: ./.github/scripts/create_bucket.sh
+        env:
+          APP_NAME: ${{ inputs.app_name }}
+          AWS_IAM_ROLE: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/github
+          ENVIRONMENT: ${{ inputs.environment }}
+          BUCKET: ${{ inputs.environment }}-${{ inputs.app_name }}-tf
+      - name: Infrastructure deployment
+        run: ./.github/scripts/deploy_infra.sh
+        env:
+          APP_NAME: ${{ inputs.app_name }}
+          AWS_IAM_ROLE: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/github
+          AWS_REGION: us-west-2
+          ENVIRONMENT: ${{ inputs.environment }}
+          TF_BUCKET: ${{ inputs.environment }}-${{ inputs.app_name }}-tf
