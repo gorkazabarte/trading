@@ -27,6 +27,7 @@ module "lambda_function_container_image" {
   create_package = false
   description    = "Donwload information using web scraping"
   environment_variables = {
+    API_KEY   = "VF5Y4DWQGRZPIYY9"
     S3_BUCKET = "${local.aws_s3_bucket}"
   }
   function_name  = "${local.environment}-${local.app_name}-download-info"
