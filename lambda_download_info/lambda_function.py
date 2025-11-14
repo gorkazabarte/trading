@@ -1,3 +1,6 @@
+from aws_lambda_powertools.utilities.typing import LambdaContext
+from aws_lambda_powertools import Logger
+
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
@@ -8,6 +11,7 @@ from time import sleep
 from os import environ
 
 URL: str = environ.get("URL", "https://www.tradingview.com/markets/stocks-usa/earnings")
+logger = Logger()
 
 def get_tradingview_earnings_today(url: str) -> list:
     chrome_options = Options()
@@ -61,3 +65,21 @@ def get_tradingview_earnings_today(url: str) -> list:
 
     finally:
         driver.quit()
+
+@logger.inject_lambda_context(log_event=True)
+def lambda_handler(event: dict, context: LambdaContext) -> dict:
+
+    logger.info("Starting earnings data retrieval from TradingView.")
+    earnings_data = get_tradingview_earnings_today(URL)
+    logger.info(f"Retrieved {len(earnings_data)} earnings entries.")
+
+    if len(earnings_data) > 0:
+        return {
+            "statusCode": 200,
+            "body": earnings_data
+        }
+    else:
+        return {
+            "statusCode": 500,
+            "body": "No earnings data found for today."
+        }
