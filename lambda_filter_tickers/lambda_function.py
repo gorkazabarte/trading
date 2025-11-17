@@ -1,16 +1,9 @@
 from csv import reader
 from datetime import datetime
 from json import dumps
-from os import environ
 
 from boto3 import client
 from requests import Session
-
-API_KEY = environ.get('API_KEY')
-CSV_URL = f'https://www.alphavantage.co/query?function=EARNINGS_CALENDAR&horizon=3month&apikey={API_KEY}'
-S3_BUCKET: str = environ.get("S3_BUCKET")
-
-s3_client = client("s3")
 
 def lambda_handler(event, context):
 
@@ -37,12 +30,7 @@ def lambda_handler(event, context):
 
         return {
             'statusCode': 200,
-            'body': {
-                'records_uploaded': len(today_data),
-                'message': 'Successfully uploaded earnings data',
-                's3_bucket': S3_BUCKET,
-                's3_key': f'earnings_{today_str}.json'
-            }
+            'body': 'Earnings data for today uploaded to S3.'
         }
     except Exception as e:
         return {
