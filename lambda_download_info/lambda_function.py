@@ -60,8 +60,14 @@ def lambda_handler(event, context):
             start += ROWS_PER_PAGE
 
         df = DataFrame(data)
-        df.to_csv("nasdaq_earnings_next_month.csv", index=False)
-        print(f"Saved {len(df)} rows")
+        csv = df.to_csv(index=False)
+
+        s3_client.put_object(
+            Bucket=S3_BUCKET,
+            Key=f'{year}/{month}/companies.csv',
+            Body=csv,
+            ContentType="text/csv"
+        )
 
         return {
             'statusCode': 200,
