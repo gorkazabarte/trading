@@ -1,6 +1,7 @@
 from calendar import monthrange
 from datetime import date
 from os import environ
+
 from boto3 import client
 from pandas import DataFrame
 from requests import get

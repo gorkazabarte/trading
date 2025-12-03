@@ -7,7 +7,7 @@ locals {
   environment    = var.environment
 }
 
-resource "aws_iam_policy" "lambda_policy" {
+resource "aws_iam_policy" "lambda_policy_download_info" {
   name        = "${local.environment}-${local.app_name}-download-info"
   description = "Allow Lambda to put objects in specific S3 bucket"
 
@@ -21,7 +21,7 @@ resource "aws_iam_policy" "lambda_policy" {
   })
 }
 
-module "lambda_function_container_image" {
+module "lambda_function_download_info" {
   source         = "terraform-aws-modules/lambda/aws"
   attach_policy  = true
   create_package = false
@@ -35,6 +35,77 @@ module "lambda_function_container_image" {
   memory_size	 = 256
   timeout        = 180
   package_type   = "Image"
-  policy         = aws_iam_policy.lambda_policy.arn
+  policy         = aws_iam_policy.lambda_policy_download_info.arn
+  version        = "8.1.2"
+}
+
+resource "aws_iam_policy" "lambda_policy_get_calendar" {
+  name        = "${local.environment}-${local.app_name}-get-calendar"
+  description = "Return calendar response to API Gateway"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["s3:PutObject"]
+      Resource = "arn:aws:s3:::${local.aws_s3_bucket}/*"
+    }]
+  })
+}
+
+module "lambda_function_get_calendar" {
+  source         = "terraform-aws-modules/lambda/aws"
+  attach_policy  = true
+  create_package = false
+  description    = "Return calendar response to API Gateway"
+  environment_variables = {
+    API_KEY   = "VF5Y4DWQGRZPIYY9"
+    S3_BUCKET = "${local.aws_s3_bucket}"
+  }
+  function_name  = "${local.environment}-${local.app_name}-get-calendar"
+  image_uri      = "${local.aws_account_id}.dkr.ecr.${local.aws_region}.amazonaws.com/${local.environment}-${local.app_name}-get-calendar:${local.app_version}"
+  memory_size	 = 256
+  timeout        = 180
+  package_type   = "Image"
+  policy         = aws_iam_policy.lambda_policy_get_calendar.arn
+  version        = "8.1.2"
+}
+
+resource "aws_iam_policy" "lambda_policy_filter_info" {
+  name        = "${local.environment}-${local.app_name}-filter-info"
+  description = "Filter companies based on criteria and store in S3"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["s3:GetObject"]
+        Resource = "arn:aws:s3:::${local.aws_s3_bucket}/*"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["s3:ListBucket"]
+        Resource = "arn:aws:s3:::${local.aws_s3_bucket}"
+      }
+    ]
+  })
+}
+
+module "lambda_function_filter_info" {
+  source         = "terraform-aws-modules/lambda/aws"
+  attach_policy  = true
+  create_package = false
+  description    = "Filter companies based on criteria and store in S3"
+  environment_variables = {
+    API_KEY   = "VF5Y4DWQGRZPIYY9"
+    S3_BUCKET = "${local.aws_s3_bucket}"
+  }
+  function_name  = "${local.environment}-${local.app_name}-filter-info"
+  image_uri      = "${local.aws_account_id}.dkr.ecr.${local.aws_region}.amazonaws.com/${local.environment}-${local.app_name}-filter-info:${local.app_version}"
+  memory_size	 = 256
+  timeout        = 180
+  package_type   = "Image"
+  policy         = aws_iam_policy.lambda_policy_filter_info.arn
   version        = "8.1.2"
 }
