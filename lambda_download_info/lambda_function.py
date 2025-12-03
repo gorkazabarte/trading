@@ -13,9 +13,9 @@ S3_BUCKET: str = environ.get("S3_BUCKET")
 s3_client = client("s3")
 today = date.today()
 
-year = today.year + (1 if today.month == 12 else 0)
-month = today.month + 1 if today.month < 12 else 1
-days_in_next_month = monthrange(today.year + 1, 1)[1] if today.month == 12 else monthrange(today.year + 1, 1)[1]
+year = environ.get("YEAR") if environ.get("YEAR", False) else today.year + (1 if today.month == 12 else 0)
+month = environ.get("MONTH") if environ.get("MONTH", False) else today.month + 1 if today.month < 12 else 1
+days_in_next_month = monthrange(year, month)[1]
 
 def lambda_handler(event, context):
 
