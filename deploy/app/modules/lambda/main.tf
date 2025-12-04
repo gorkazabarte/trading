@@ -45,11 +45,18 @@ resource "aws_iam_policy" "lambda_policy_get_calendar" {
 
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{
-      Effect   = "Allow"
-      Action   = ["s3:PutObject"]
-      Resource = "arn:aws:s3:::${local.aws_s3_bucket}/*"
-    }]
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["s3:GetObject"]
+        Resource = "arn:aws:s3:::${local.aws_s3_bucket}/*"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["s3:ListBucket"]
+        Resource = "arn:aws:s3:::${local.aws_s3_bucket}"
+      }
+    ]
   })
 }
 
