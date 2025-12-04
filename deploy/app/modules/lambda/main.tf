@@ -80,7 +80,7 @@ resource "aws_iam_policy" "lambda_policy_filter_info" {
     Statement = [
       {
         Effect   = "Allow"
-        Action   = ["s3:GetObject"]
+        Action   = ["s3:GetObject", "s3:PutObject"]
         Resource = "arn:aws:s3:::${local.aws_s3_bucket}/*"
       },
       {
