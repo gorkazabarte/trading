@@ -59,8 +59,7 @@ def lambda_handler(event, context):
 
     year, month = get_target_month()
 
-    key = f"{year}/{month}/earnings.csv"
-    print(f"Key: {key}")
+    key = f"{year}/{month:02}/earnings.csv"
 
     obj = s3.get_object(Bucket=S3_BUCKET, Key=key)
     data = obj["Body"].read().decode("utf-8")
