@@ -9,6 +9,7 @@ from requests import get
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 ROWS_PER_PAGE = 1000
 S3_BUCKET = environ.get("S3_BUCKET")
+FINNHUB_API_TOKEN = environ.get("FINNHUB_API_TOKEN", "d4bgvrhr01qnomk4rodgd4bgvrhr01qnomk4roe0")
 
 s3 = client("s3")
 
@@ -61,13 +62,34 @@ def fetch_earnings_for_day(year: int, month: int, day: int):
     return all_rows
 
 
+def fetch_finnhub_earnings(from_date: str, to_date: str):
+    """Fetch earnings data from Finnhub API for a date range."""
+    url = "https://finnhub.io/api/v1/calendar/earnings"
+    params = {
+        "from": from_date,
+        "to": to_date,
+        "token": FINNHUB_API_TOKEN
+    }
+
+    try:
+        resp = get(url, params=params)
+        resp.raise_for_status()
+        data = resp.json()
+        return data.get("earningsCalendar", [])
+    except Exception as e:
+        print(f"Error fetching Finnhub data: {str(e)}")
+        return []
+
+
 def lambda_handler(event, context):
     try:
         year, month = get_target_month()
         days_in_month = monthrange(year, month)[1]
 
         records = []
+        nasdaq_symbols = set()
 
+        # Fetch data from Nasdaq API day by day
         for day in range(1, days_in_month + 1):
             current_date = date(year, month, day)
 
@@ -80,16 +102,66 @@ def lambda_handler(event, context):
                 continue
 
             for item in rows:
+                symbol = item.get("symbol")
+                nasdaq_symbols.add(symbol)
                 records.append({
                     "Company": item.get("name"),
                     "Date": current_date.isoformat(),
                     "EPS Estimate": item.get("epsForecast"),
                     "Market Cap": item.get("marketCap"),
-                    "Symbol": item.get("symbol"),
-                    "Time": item.get("time")
+                    "Symbol": symbol,
+                    "Time": item.get("time"),
+                    "Source": "Nasdaq"
                 })
 
+        # Fetch data from Finnhub API for the entire month
+        from_date = f"{year}-{month:02}-01"
+        to_date = f"{year}-{month:02}-{days_in_month:02}"
+
+        finnhub_data = fetch_finnhub_earnings(from_date, to_date)
+
+        # Add Finnhub data for symbols not already in Nasdaq data
+        for item in finnhub_data:
+            symbol = item.get("symbol")
+            earnings_date = item.get("date")
+
+            # Skip if symbol already in Nasdaq data
+            if symbol in nasdaq_symbols:
+                continue
+
+            # Skip if date is a weekend
+            try:
+                date_obj = date.fromisoformat(earnings_date)
+                if date_obj.weekday() >= 5:
+                    continue
+            except:
+                continue
+
+            # Map Finnhub 'hour' to a more readable time format
+            hour = item.get("hour", "")
+            time_mapping = {
+                "bmo": "before-market-open",
+                "amc": "after-market-close",
+                "": "time-not-supplied"
+            }
+            time_display = time_mapping.get(hour, hour)
+
+            records.append({
+                "Company": symbol,  # Finnhub doesn't provide company name in this endpoint
+                "Date": earnings_date,
+                "EPS Estimate": item.get("epsEstimate"),
+                "Market Cap": None,  # Not provided by Finnhub
+                "Symbol": symbol,
+                "Time": time_display,
+                "Source": "Finnhub"
+            })
+
         df = DataFrame(records)
+
+        # Sort by date and symbol for better organization
+        if not df.empty:
+            df = df.sort_values(by=["Date", "Symbol"]).reset_index(drop=True)
+
         csv_data = df.to_csv(index=False)
 
         s3_key = f"{year}/{month:02}/earnings.csv"
@@ -101,11 +173,16 @@ def lambda_handler(event, context):
             ContentType="text/csv"
         )
 
+        nasdaq_count = sum(1 for r in records if r.get("Source") == "Nasdaq")
+        finnhub_count = sum(1 for r in records if r.get("Source") == "Finnhub")
+
         return {
             "statusCode": 200,
             "body": {
                 "message": "Success",
                 "records_uploaded": len(df),
+                "nasdaq_records": nasdaq_count,
+                "finnhub_records": finnhub_count,
                 "s3_bucket": S3_BUCKET,
                 "s3_key": s3_key
             }

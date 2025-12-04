@@ -79,9 +79,9 @@ def lambda_handler(event, context):
                 symbol_date = df[df["Symbol"] == symbol]["Date"].iloc[0]
 
                 companies[symbol] = {
-                    "current_price": current_price,
+                    "current_price": round(current_price, 4),
                     "date": str(symbol_date),
-                    "percentage_change_90d": percentage_change_90d
+                    "percentage_change_90d": round(percentage_change_90d, 4)
                 }
         except Exception as e:
             symbols.remove(symbol)
