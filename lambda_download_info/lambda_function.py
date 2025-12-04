@@ -164,7 +164,7 @@ def lambda_handler(event, context):
 
         csv_data = df.to_csv(index=False)
 
-        s3_key = f"{year}/{month:02}/earnings.csv"
+        s3_key = f"{year}/{month:02}/all_companies.csv"
 
         s3.put_object(
             Bucket=S3_BUCKET,

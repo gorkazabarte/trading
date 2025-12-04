@@ -1,5 +1,6 @@
 from datetime import date, datetime, timedelta
 from io import StringIO
+from json import dumps
 from os import environ
 
 from boto3 import client
@@ -54,12 +55,23 @@ def get_stock_performance(ticker: str):
         "90d_low": float(low_90),
     }
 
+def save_to_s3(companies, year, month):
+
+    key = f"{year}/{month:02}/filtered_companies.json"
+    s3.put_object(
+        Bucket=S3_BUCKET,
+        Key=key,
+        Body=dumps(companies),
+        ContentType="application/json"
+    )
+
+
 
 def lambda_handler(event, context):
 
     year, month = get_target_month()
 
-    key = f"{year}/{month:02}/earnings.csv"
+    key = f"{year}/{month:02}/all_companies.csv"
 
     obj = s3.get_object(Bucket=S3_BUCKET, Key=key)
     data = obj["Body"].read().decode("utf-8")
@@ -85,7 +97,14 @@ def lambda_handler(event, context):
         except Exception as e:
             symbols.remove(symbol)
 
+    save_to_s3(companies, year, month)
+
     return {
-        "code": 200,
-        "companies": companies
-    }
+            "statusCode": 200,
+            "body": {
+                "message": "Success",
+                "records_uploaded": len(companies),
+                "s3_bucket": S3_BUCKET,
+                "s3_key": f"{year}/{month:02}/filtered_companies.json"
+            }
+        }
