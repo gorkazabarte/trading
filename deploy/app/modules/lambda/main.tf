@@ -104,7 +104,7 @@ module "lambda_function_filter_info" {
   function_name  = "${local.environment}-${local.app_name}-filter-info"
   image_uri      = "${local.aws_account_id}.dkr.ecr.${local.aws_region}.amazonaws.com/${local.environment}-${local.app_name}-filter-info:${local.app_version}"
   memory_size	 = 256
-  timeout        = 180
+  timeout        = 300
   package_type   = "Image"
   policy         = aws_iam_policy.lambda_policy_filter_info.arn
   version        = "8.1.2"
