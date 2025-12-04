@@ -67,6 +67,7 @@ def lambda_handler(event, context):
 
     df = read_csv(StringIO(data))
     symbols = df["Symbol"].dropna().unique().tolist()
+    companies = {}
 
     for symbol in symbols[:]:
         try:
@@ -74,12 +75,15 @@ def lambda_handler(event, context):
             current_price = performance["current_price"]
             percentage_change_90d = performance["percent_change_90d"]
 
-            if current_price < MIN_SHARE_PRICE or current_price > MAX_SHARE_PRICE or percentage_change_90d < PERCENTAGE_CHANGE_90D:
-                symbols.remove(symbol)
+            if MIN_SHARE_PRICE < current_price < MAX_SHARE_PRICE and percentage_change_90d > PERCENTAGE_CHANGE_90D:
+                companies[symbol] = {
+                    "current_price": current_price,
+                    "percentage_change_90d": percentage_change_90d
+                }
         except Exception as e:
             symbols.remove(symbol)
 
     return {
-        "Symbols": symbols,
-        "Amount_Symbols": len(symbols)
+        "code": 200,
+        "companies": companies
     }
