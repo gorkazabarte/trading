@@ -78,6 +78,14 @@ module "lambda_function_get_calendar" {
   version        = "8.1.2"
 }
 
+resource "aws_lambda_permission" "api_gateway_invoke_get_calendar" {
+  statement_id  = "AllowAPIGatewayInvoke"
+  action        = "lambda:InvokeFunction"
+  function_name = module.lambda_function_get_calendar.lambda_function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "arn:aws:execute-api:${local.aws_region}:${local.aws_account_id}:*/*"
+}
+
 resource "aws_iam_policy" "lambda_policy_filter_info" {
   name        = "${local.environment}-${local.app_name}-filter-info"
   description = "Filter companies based on criteria and store in S3"
