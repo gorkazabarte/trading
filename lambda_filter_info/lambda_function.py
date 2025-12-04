@@ -76,8 +76,11 @@ def lambda_handler(event, context):
             percentage_change_90d = performance["percent_change_90d"]
 
             if MIN_SHARE_PRICE < current_price < MAX_SHARE_PRICE and percentage_change_90d > PERCENTAGE_CHANGE_90D:
+                symbol_date = df[df["Symbol"] == symbol]["Date"].iloc[0]
+
                 companies[symbol] = {
                     "current_price": current_price,
+                    "date": str(symbol_date),
                     "percentage_change_90d": percentage_change_90d
                 }
         except Exception as e:
