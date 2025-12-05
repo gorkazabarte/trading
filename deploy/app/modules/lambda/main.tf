@@ -1,10 +1,11 @@
 locals {
-  app_name       = var.app_name
-  app_version    = var.app_version
-  aws_account_id = var.aws_account_id
-  aws_region     = var.aws_region
-  aws_s3_bucket  = var.s3_bucket_name
-  environment    = var.environment
+  app_name         = var.app_name
+  app_version      = var.app_version
+  aws_account_id   = var.aws_account_id
+  aws_region       = var.aws_region
+  aws_s3_bucket    = var.s3_bucket_name
+  dynamo_db_table  = var.dynamodb_table_name
+  environment      = var.environment
 }
 
 resource "aws_iam_policy" "lambda_policy_download_info" {
@@ -122,5 +123,52 @@ module "lambda_function_filter_info" {
   timeout        = 300
   package_type   = "Image"
   policy         = aws_iam_policy.lambda_policy_filter_info.arn
+  version        = "8.1.2"
+}
+
+resource "aws_lambda_permission" "api_gateway_invoke_update_settings" {
+  statement_id  = "AllowAPIGatewayInvoke"
+  action        = "lambda:InvokeFunction"
+  function_name = module.lambda_function_update_settings.lambda_function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "arn:aws:execute-api:${local.aws_region}:${local.aws_account_id}:*/*"
+}
+
+resource "aws_iam_policy" "lambda_policy_update_settings" {
+  name        = "${local.environment}-${local.app_name}-update-settings"
+  description = "Allow Lambda to update items in DynamoDB table"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = [
+          "dynamodb:PutItem",
+          "dynamodb:UpdateItem",
+          "dynamodb:GetItem",
+          "dynamodb:Query",
+          "dynamodb:Scan"
+        ]
+        Resource = "arn:aws:dynamodb:${local.aws_region}:${local.aws_account_id}:table/${local.dynamo_db_table}"
+      }
+    ]
+  })
+}
+
+module "lambda_function_update_settings" {
+  source         = "terraform-aws-modules/lambda/aws"
+  attach_policy  = true
+  create_package = false
+  description    = "AWS Lambda function to update tradding settings in DynamoDB"
+  environment_variables = {
+    DYNAMODB_TABLE = "${local.dynamo_db_table}"
+  }
+  function_name  = "${local.environment}-${local.app_name}-update-settings"
+  image_uri      = "${local.aws_account_id}.dkr.ecr.${local.aws_region}.amazonaws.com/${local.environment}-${local.app_name}-update-settings:${local.app_version}"
+  memory_size	 = 256
+  timeout        = 300
+  package_type   = "Image"
+  policy         = aws_iam_policy.lambda_policy_update_settings.arn
   version        = "8.1.2"
 }

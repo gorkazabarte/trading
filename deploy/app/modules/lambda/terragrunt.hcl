@@ -2,6 +2,10 @@ include "root" {
   path = find_in_parent_folders("root.hcl")
 }
 
+dependency "dynamodb" {
+  config_path = "../dynamodb"
+}
+
 dependency "s3" {
   config_path = "../s3"
 }
@@ -12,7 +16,8 @@ locals {
 }
 
 inputs = {
-  s3_bucket_name = dependency.s3.outputs.s3_bucket_name
+  dynamodb_table_name = dependency.dynamodb.outputs.dynamodb_table_tradding_settings_name
+  s3_bucket_name      = dependency.s3.outputs.s3_bucket_name
 }
 
 remote_state {

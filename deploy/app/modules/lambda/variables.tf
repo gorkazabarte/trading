@@ -18,6 +18,11 @@ variable "aws_region" {
   type        = string
 }
 
+variable "dynamodb_table_name" {
+  description = "The name of the DynamoDB table for application settings."
+  type        = string
+}
+
 variable "environment" {
   description = "The deployment environment (e.g., dev, staging, prod)."
   type        = string
