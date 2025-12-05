@@ -100,6 +100,15 @@ jobs:
         run: |
           docker build --file ./lambda_filter_info/Dockerfile -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG ./lambda_filter_info
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+      - name: Build and push filter info
+        continue-on-error: true
+        env:
+          ECR_REGISTRY: ${{ steps.ecr.outputs.registry }}
+          ECR_REPOSITORY: "${{ inputs.environment }}-${{ inputs.app_name }}-update-settings"
+          IMAGE_TAG: ${{ needs.prepare.outputs.version }}
+        run: |
+          docker build --file ./lambda_update_settings/Dockerfile -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG ./lambda_update_settings
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
       - name: Install Terraform
         uses: hashicorp/setup-terraform@v3
         with:
