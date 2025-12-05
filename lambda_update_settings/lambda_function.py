@@ -25,6 +25,19 @@ def lambda_handler(event, context):
 
     print(f"Received event: {event}")
 
+    # Handle CORS preflight request
+    if event.get('httpMethod') == 'OPTIONS':
+        return {
+            "statusCode": 200,
+            "headers": {
+                "Content-Type": "application/json",
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "POST, OPTIONS, GET",
+                "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With"
+            },
+            "body": ""
+        }
+
     try:
         if 'body' in event:
             if isinstance(event['body'], str):
@@ -40,7 +53,9 @@ def lambda_handler(event, context):
                 "body": dumps({"error": "Request body is empty"}),
                 "headers": {
                     "Content-Type": "application/json",
-                    "Access-Control-Allow-Origin": "*"
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Methods": "POST, OPTIONS, GET",
+                    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With"
                 }
             }
 
@@ -53,7 +68,9 @@ def lambda_handler(event, context):
                 "body": dumps({"error": f"Missing required fields: {', '.join(missing_fields)}"}),
                 "headers": {
                     "Content-Type": "application/json",
-                    "Access-Control-Allow-Origin": "*"
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Methods": "POST, OPTIONS, GET",
+                    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With"
                 }
             }
 
@@ -83,7 +100,9 @@ def lambda_handler(event, context):
             }, cls=DecimalEncoder),
             "headers": {
                 "Content-Type": "application/json",
-                "Access-Control-Allow-Origin": "*"
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "POST, OPTIONS, GET",
+                "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With"
             }
         }
 
@@ -93,7 +112,9 @@ def lambda_handler(event, context):
             "body": dumps({"error": "Invalid JSON format"}),
             "headers": {
                 "Content-Type": "application/json",
-                "Access-Control-Allow-Origin": "*"
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "POST, OPTIONS, GET",
+                "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With"
             }
         }
 
@@ -103,7 +124,9 @@ def lambda_handler(event, context):
             "body": dumps({"error": "Configuration error: DynamoDB table not found"}),
             "headers": {
                 "Content-Type": "application/json",
-                "Access-Control-Allow-Origin": "*"
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "POST, OPTIONS, GET",
+                "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With"
             }
         }
 
@@ -113,7 +136,9 @@ def lambda_handler(event, context):
             "body": dumps({"error": "Item could not be updated due to conditional check failure"}),
             "headers": {
                 "Content-Type": "application/json",
-                "Access-Control-Allow-Origin": "*"
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "POST, OPTIONS, GET",
+                "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With"
             }
         }
 
@@ -123,7 +148,9 @@ def lambda_handler(event, context):
             "body": dumps({"error": f"Internal server error {e}"}),
             "headers": {
                 "Content-Type": "application/json",
-                "Access-Control-Allow-Origin": "*"
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "POST, OPTIONS, GET",
+                "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With"
             }
         }
 
