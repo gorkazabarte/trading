@@ -28,6 +28,7 @@ def lambda_handler(event, context):
                 body = loads(event['body'])
             else:
                 body = event['body']
+                print(f"Body: {body}")
         else:
             body = event
 
@@ -41,10 +42,10 @@ def lambda_handler(event, context):
                 }
             }
 
-        if 'setting' not in body:
+        if 'stopLoss' not in body or 'takeProfit' not in body or 'nextInvestment' not in body or 'opsPerDay' not in body:
             return {
                 "statusCode": 400,
-                "body": dumps({"error": "Missing required field: 'setting'"}),
+                "body": dumps({"error": "Missing required field in the body"}),
                 "headers": {
                     "Content-Type": "application/json",
                     "Access-Control-Allow-Origin": "*"
