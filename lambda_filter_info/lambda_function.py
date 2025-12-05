@@ -77,7 +77,9 @@ def lambda_handler(event, context):
     data = obj["Body"].read().decode("utf-8")
 
     df = read_csv(StringIO(data))
-    symbols = df["Symbol"].dropna().unique().tolist()
+    df_filtered = df[df["Time"] != "before-market-open"].copy()
+
+    symbols = df_filtered["Symbol"].dropna().unique().tolist()
     companies = {}
 
     for symbol in symbols[:]:
@@ -87,15 +89,19 @@ def lambda_handler(event, context):
             percentage_change_90d = performance["percent_change_90d"]
 
             if MIN_SHARE_PRICE < current_price < MAX_SHARE_PRICE and percentage_change_90d > PERCENTAGE_CHANGE_90D:
-                symbol_date = df[df["Symbol"] == symbol]["Date"].iloc[0]
+                symbol_data = df_filtered[df_filtered["Symbol"] == symbol].iloc[0]
+                symbol_date = symbol_data["Date"]
+                symbol_time = symbol_data["Time"]
 
                 companies[symbol] = {
                     "current_price": round(current_price, 4),
                     "date": str(symbol_date),
+                    "time": symbol_time,
                     "percentage_change_90d": round(percentage_change_90d, 4)
                 }
         except Exception as e:
-            symbols.remove(symbol)
+            print(f"Error processing symbol {symbol}: {str(e)}")
+            continue
 
     save_to_s3(companies, year, month)
 

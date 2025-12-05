@@ -33,9 +33,8 @@ def lambda_handler(event, context):
                 "Content-Type": "application/json",
                 "Access-Control-Allow-Origin": "*",
                 "Access-Control-Allow-Methods": "POST, OPTIONS, GET",
-                "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With"
-            },
-            "body": ""
+                "Access-Control-Allow-Headers": "Content-Type"
+            }
         }
 
     try:
