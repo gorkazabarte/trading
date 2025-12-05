@@ -1,3 +1,8 @@
+unit "dynamodb" {
+  source = "./modules/dynamodb"
+  path   = "dynamodb"
+}
+
 unit "lambda" {
   source = "./modules/lambda"
   path   = "lambda"
