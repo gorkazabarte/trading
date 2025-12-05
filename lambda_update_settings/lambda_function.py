@@ -22,6 +22,8 @@ def lambda_handler(event, context):
     Expects a JSON body with the item data to update.
     """
 
+    print(f"Received event: {event}")
+
     try:
         if 'body' in event:
             if isinstance(event['body'], str):
@@ -43,6 +45,7 @@ def lambda_handler(event, context):
             }
 
         if 'stopLoss' not in body or 'takeProfit' not in body or 'nextInvestment' not in body or 'opsPerDay' not in body:
+            print(f"Body missing required fields: {body}")
             return {
                 "statusCode": 400,
                 "body": dumps({"error": "Missing required field in the body"}),
