@@ -30,7 +30,6 @@ def lambda_handler(event, context):
                 body = loads(event['body'])
             else:
                 body = event['body']
-                print(f"Body: {body}")
         else:
             body = event
 
@@ -45,7 +44,6 @@ def lambda_handler(event, context):
             }
 
         if 'stopLoss' not in body or 'takeProfit' not in body or 'nextInvestment' not in body or 'opsPerDay' not in body:
-            print(f"Body missing required fields: {body}")
             return {
                 "statusCode": 400,
                 "body": dumps({"error": "Missing required field in the body"}),
@@ -130,7 +128,7 @@ def lambda_handler(event, context):
     except Exception as e:
         return {
             "statusCode": 500,
-            "body": dumps({"error": "Internal server error"}),
+            "body": dumps({"error": f"Internal server error {e}"}),
             "headers": {
                 "Content-Type": "application/json",
                 "Access-Control-Allow-Origin": "*"
