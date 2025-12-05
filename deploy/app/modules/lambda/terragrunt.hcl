@@ -16,7 +16,7 @@ locals {
 }
 
 inputs = {
-  dynamodb_table_name = dependency.dynamodb.outputs.dynamodb_table_tradding_settings_name
+  dynamodb_table_name = dependency.dynamodb.outputs.dynamo_db_name
   s3_bucket_name      = dependency.s3.outputs.s3_bucket_name
 }
 
