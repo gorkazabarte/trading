@@ -19,7 +19,8 @@ class DecimalEncoder(JSONEncoder):
 def lambda_handler(event, context):
     """
     AWS Lambda handler for updating DynamoDB table.
-    Expects a JSON body with the item data to update.
+    Expects a JSON body with stopLoss, takeProfit, nextInvestment, and opsPerDay values.
+    Each setting is stored as a separate item in DynamoDB with 'Setting' as partition key.
     """
 
     print(f"Received event: {event}")
@@ -43,51 +44,42 @@ def lambda_handler(event, context):
                 }
             }
 
-        if 'stopLoss' not in body or 'takeProfit' not in body or 'nextInvestment' not in body or 'opsPerDay' not in body:
+        required_settings = ['stopLoss', 'takeProfit', 'nextInvestment', 'opsPerDay']
+
+        missing_fields = [field for field in required_settings if field not in body]
+        if missing_fields:
             return {
                 "statusCode": 400,
-                "body": dumps({"error": "Missing required field in the body"}),
+                "body": dumps({"error": f"Missing required fields: {', '.join(missing_fields)}"}),
                 "headers": {
                     "Content-Type": "application/json",
                     "Access-Control-Allow-Origin": "*"
                 }
             }
 
-        item_id = body.pop('id')
+        updated_items = {}
 
-        update_expression = "SET "
-        expression_attribute_names = {}
-        expression_attribute_values = {}
+        for setting_name in required_settings:
+            setting_value = body[setting_name]
 
-        for idx, (key, value) in enumerate(body.items()):
-            attr_name = f"#attr{idx}"
-            attr_value = f":val{idx}"
+            if isinstance(setting_value, float):
+                setting_value = Decimal(str(setting_value))
 
-            if idx > 0:
-                update_expression += ", "
+            table.put_item(
+                Item={
+                    'Setting': setting_name,
+                    'Value': setting_value
+                }
+            )
 
-            update_expression += f"{attr_name} = {attr_value}"
-            expression_attribute_names[attr_name] = key
-
-            if isinstance(value, float):
-                expression_attribute_values[attr_value] = Decimal(str(value))
-            else:
-                expression_attribute_values[attr_value] = value
-
-        # Update the item in DynamoDB
-        response = table.update_item(
-            Key={'id': item_id},
-            UpdateExpression=update_expression,
-            ExpressionAttributeNames=expression_attribute_names,
-            ExpressionAttributeValues=expression_attribute_values,
-            ReturnValues="ALL_NEW"
-        )
+            updated_items[setting_name] = setting_value
+            print(f"Updated setting: {setting_name} = {setting_value}")
 
         return {
             "statusCode": 200,
             "body": dumps({
-                "message": "Item updated successfully",
-                "updatedItem": response.get('Attributes', {})
+                "message": "Settings updated successfully",
+                "updatedSettings": updated_items
             }, cls=DecimalEncoder),
             "headers": {
                 "Content-Type": "application/json",
