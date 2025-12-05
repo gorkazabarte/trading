@@ -1,16 +1,17 @@
+locals {
+  app_name    = var.app_name
+  environment = var.environment
+}
+
 module "dynamodb_table_tradding_settings" {
   source   = "terraform-aws-modules/dynamodb-table/aws"
 
-  name     = "dev-trading-settings"
-  hash_key = "setting"
+  name     = "${local.environment}-${local.app_name}-settings"
+  hash_key = "Setting"
 
   attributes = [
     {
-      name = "setting"
-      type = "S"
-    },
-    {
-      name = "value"
+      name = "Setting"
       type = "S"
     }
   ]

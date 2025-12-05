@@ -3,16 +3,6 @@ variable "app_name" {
   type        = string
 }
 
-variable "app_version" {
-  description = "The version of the application."
-  type        = string
-}
-
-variable "aws_account_id" {
-  description = "The AWS account ID where resources will be created."
-  type        = string
-}
-
 variable "aws_region" {
   description = "The AWS region where resources will be created."
   type        = string
@@ -20,10 +10,5 @@ variable "aws_region" {
 
 variable "environment" {
   description = "The deployment environment (e.g., dev, staging, prod)."
-  type        = string
-}
-
-variable "s3_bucket_name" {
-  description = "The name of the S3 bucket for Lambda function code storage."
   type        = string
 }
