@@ -210,7 +210,7 @@ module "lambda_function_update_settings" {
   function_name  = "${local.environment}-${local.app_name}-update-settings"
   image_uri      = "${local.aws_account_id}.dkr.ecr.${local.aws_region}.amazonaws.com/${local.environment}-${local.app_name}-update-settings:${local.app_version}"
   memory_size	 = 256
-  timeout        = 300
+  timeout        = 450
   package_type   = "Image"
   policy         = aws_iam_policy.lambda_policy_update_settings.arn
   version        = "8.1.2"
