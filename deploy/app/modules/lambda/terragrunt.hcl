@@ -2,10 +2,6 @@ include "root" {
   path = find_in_parent_folders("root.hcl")
 }
 
-dependency "dynamodb" {
-  config_path = "../dynamodb"
-}
-
 dependency "s3" {
   config_path = "../s3"
 }
@@ -16,7 +12,6 @@ locals {
 }
 
 inputs = {
-  dynamodb_table_name = dependency.dynamodb.outputs.dynamo_db_name
   s3_bucket_name      = dependency.s3.outputs.s3_bucket_name
 }
 

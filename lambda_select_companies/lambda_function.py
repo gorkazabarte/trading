@@ -91,17 +91,14 @@ def lambda_handler(event, context):
                 }
             }
 
-        # Create txt content with one ticker per line
         txt_content = '\n'.join(str(ticker).strip() for ticker in companies if ticker)
 
-        # Generate timestamp and S3 key
         now = datetime.now(timezone.utc)
         timestamp = now.strftime("%Y%m%d_%H%M%S")
         year = now.year
         month = now.month
         s3_key = f"{year}/{month:02}/selected_companies_{timestamp}.txt"
 
-        # Upload to S3
         s3.put_object(
             Bucket=S3_BUCKET,
             Key=s3_key,

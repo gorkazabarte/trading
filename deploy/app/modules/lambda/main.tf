@@ -4,7 +4,6 @@ locals {
   aws_account_id   = var.aws_account_id
   aws_region       = var.aws_region
   aws_s3_bucket    = var.s3_bucket_name
-  dynamo_db_table  = var.dynamodb_table_name
   environment      = var.environment
 }
 
@@ -140,7 +139,7 @@ resource "aws_iam_policy" "lambda_policy_select_companies" {
     Statement = [
       {
         Effect   = "Allow"
-        Action   = ["s3:GetObject"]
+        Action   = ["s3:PutObject"]
         Resource = "arn:aws:s3:::${local.aws_s3_bucket}/*"
       },
       {
@@ -186,14 +185,13 @@ resource "aws_iam_policy" "lambda_policy_update_settings" {
     Statement = [
       {
         Effect   = "Allow"
-        Action   = [
-          "dynamodb:PutItem",
-          "dynamodb:UpdateItem",
-          "dynamodb:GetItem",
-          "dynamodb:Query",
-          "dynamodb:Scan"
-        ]
-        Resource = "arn:aws:dynamodb:${local.aws_region}:${local.aws_account_id}:table/${local.dynamo_db_table}"
+        Action   = ["s3:PutObject"]
+        Resource = "arn:aws:s3:::${local.aws_s3_bucket}/*"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["s3:ListBucket"]
+        Resource = "arn:aws:s3:::${local.aws_s3_bucket}"
       }
     ]
   })
@@ -203,9 +201,10 @@ module "lambda_function_update_settings" {
   source         = "terraform-aws-modules/lambda/aws"
   attach_policy  = true
   create_package = false
-  description    = "AWS Lambda function to update tradding settings in DynamoDB"
+  description    = "AWS Lambda function to update tradding settings in S3 bucket"
   environment_variables = {
-    DYNAMODB_TABLE = "${local.dynamo_db_table}"
+    S3_BUCKET = "${local.aws_s3_bucket}"
+    S3_KEY    = "settings.json"
   }
   function_name  = "${local.environment}-${local.app_name}-update-settings"
   image_uri      = "${local.aws_account_id}.dkr.ecr.${local.aws_region}.amazonaws.com/${local.environment}-${local.app_name}-update-settings:${local.app_version}"

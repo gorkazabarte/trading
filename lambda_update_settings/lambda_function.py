@@ -1,26 +1,17 @@
-from boto3 import resource
-from json import JSONDecodeError, JSONEncoder, loads, dumps
+from boto3 import client
+from json import JSONDecodeError, loads, dumps
 from os import environ
-from decimal import Decimal
 
-dynamodb = resource('dynamodb')
-DYNAMODB_TABLE = environ.get('DYNAMODB_TABLE')
-table = dynamodb.Table(DYNAMODB_TABLE)
-
-
-class DecimalEncoder(JSONEncoder):
-    """Helper class to convert Decimal to float for JSON serialization"""
-    def default(self, obj):
-        if isinstance(obj, Decimal):
-            return float(obj)
-        return super(DecimalEncoder, self).default(obj)
+s3 = client('s3')
+S3_BUCKET = environ.get('S3_BUCKET')
+S3_KEY = environ.get('S3_KEY', 'settings.json')
 
 
 def lambda_handler(event, context):
     """
-    AWS Lambda handler for updating DynamoDB table.
+    AWS Lambda handler for updating settings in S3.
     Expects a JSON body with stopLoss, takeProfit, nextInvestment, and opsPerDay values.
-    Each setting is stored as a separate item in DynamoDB with 'Setting' as partition key.
+    Settings are stored as a JSON object in S3.
     """
 
     print(f"Received event: {event}")
@@ -73,30 +64,29 @@ def lambda_handler(event, context):
                 }
             }
 
-        updated_items = {}
+        # Prepare settings object
+        settings = {
+            setting_name: body[setting_name]
+            for setting_name in required_settings
+        }
 
-        for setting_name in required_settings:
-            setting_value = body[setting_name]
+        # Store settings in S3 as JSON
+        s3.put_object(
+            Bucket=S3_BUCKET,
+            Key=S3_KEY,
+            Body=dumps(settings, indent=2),
+            ContentType='application/json'
+        )
 
-            if isinstance(setting_value, float):
-                setting_value = Decimal(str(setting_value))
-
-            table.put_item(
-                Item={
-                    'Setting': setting_name,
-                    'Value': setting_value
-                }
-            )
-
-            updated_items[setting_name] = setting_value
-            print(f"Updated setting: {setting_name} = {setting_value}")
+        print(f"Updated settings in S3: {settings}")
 
         return {
             "statusCode": 200,
             "body": dumps({
                 "message": "Settings updated successfully",
-                "updatedSettings": updated_items
-            }, cls=DecimalEncoder),
+                "updatedSettings": settings,
+                "s3_location": f"s3://{S3_BUCKET}/{S3_KEY}"
+            }),
             "headers": {
                 "Content-Type": "application/json",
                 "Access-Control-Allow-Origin": "*",
@@ -116,23 +106,10 @@ def lambda_handler(event, context):
                 "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With"
             }
         }
-
-    except dynamodb.meta.client.exceptions.ResourceNotFoundException:
+    except s3.exceptions.NoSuchBucket:
         return {
             "statusCode": 500,
-            "body": dumps({"error": "Configuration error: DynamoDB table not found"}),
-            "headers": {
-                "Content-Type": "application/json",
-                "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Methods": "POST, OPTIONS, GET",
-                "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With"
-            }
-        }
-
-    except dynamodb.meta.client.exceptions.ConditionalCheckFailedException:
-        return {
-            "statusCode": 409,
-            "body": dumps({"error": "Item could not be updated due to conditional check failure"}),
+            "body": dumps({"error": f"Configuration error: S3 bucket '{S3_BUCKET}' not found"}),
             "headers": {
                 "Content-Type": "application/json",
                 "Access-Control-Allow-Origin": "*",
@@ -142,9 +119,10 @@ def lambda_handler(event, context):
         }
 
     except Exception as e:
+        print(f"Error: {str(e)}")
         return {
             "statusCode": 500,
-            "body": dumps({"error": f"Internal server error {e}"}),
+            "body": dumps({"error": f"Internal server error: {str(e)}"}),
             "headers": {
                 "Content-Type": "application/json",
                 "Access-Control-Allow-Origin": "*",
