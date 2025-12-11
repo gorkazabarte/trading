@@ -14,8 +14,6 @@ def lambda_handler(event, context):
     Settings are stored as a JSON object in S3.
     """
 
-    print(f"Received event: {event}")
-
     # Handle CORS preflight request
     if event.get('httpMethod') == 'OPTIONS':
         return {
@@ -64,21 +62,17 @@ def lambda_handler(event, context):
                 }
             }
 
-        # Prepare settings object
         settings = {
             setting_name: body[setting_name]
             for setting_name in required_settings
         }
 
-        # Store settings in S3 as JSON
         s3.put_object(
             Bucket=S3_BUCKET,
             Key=S3_KEY,
             Body=dumps(settings, indent=2),
             ContentType='application/json'
         )
-
-        print(f"Updated settings in S3: {settings}")
 
         return {
             "statusCode": 200,
@@ -119,7 +113,6 @@ def lambda_handler(event, context):
         }
 
     except Exception as e:
-        print(f"Error: {str(e)}")
         return {
             "statusCode": 500,
             "body": dumps({"error": f"Internal server error: {str(e)}"}),
@@ -130,4 +123,3 @@ def lambda_handler(event, context):
                 "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With"
             }
         }
-

@@ -14,9 +14,6 @@ def lambda_handler(event, context):
     Creates a txt file with one ticker per line in S3.
     """
 
-    print(f"Received event: {event}")
-
-    # Handle CORS preflight request
     if event.get('httpMethod') == 'OPTIONS':
         return {
             "statusCode": 200,
@@ -29,7 +26,6 @@ def lambda_handler(event, context):
         }
 
     try:
-        # Parse the request body
         if 'body' in event:
             if isinstance(event['body'], str):
                 body = loads(event['body'])
@@ -50,7 +46,6 @@ def lambda_handler(event, context):
                 }
             }
 
-        # Validate required field
         if 'companies' not in body:
             return {
                 "statusCode": 400,
@@ -65,7 +60,6 @@ def lambda_handler(event, context):
 
         companies = body['companies']
 
-        # Validate that companies is a list
         if not isinstance(companies, list):
             return {
                 "statusCode": 400,
@@ -78,7 +72,6 @@ def lambda_handler(event, context):
                 }
             }
 
-        # Validate that companies list is not empty
         if len(companies) == 0:
             return {
                 "statusCode": 400,
@@ -106,7 +99,6 @@ def lambda_handler(event, context):
             ContentType='text/plain'
         )
 
-        print(f"Successfully uploaded {len(companies)} companies to s3://{S3_BUCKET}/{s3_key}")
 
         return {
             "statusCode": 200,
@@ -126,7 +118,6 @@ def lambda_handler(event, context):
         }
 
     except Exception as e:
-        print(f"Error: {str(e)}")
         return {
             "statusCode": 500,
             "body": dumps({

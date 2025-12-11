@@ -76,8 +76,7 @@ def fetch_finnhub_earnings(from_date: str, to_date: str):
         resp.raise_for_status()
         data = resp.json()
         return data.get("earningsCalendar", [])
-    except Exception as e:
-        print(f"Error fetching Finnhub data: {str(e)}")
+    except Exception:
         return []
 
 
@@ -89,7 +88,6 @@ def lambda_handler(event, context):
         records = []
         nasdaq_symbols = set()
 
-        # Fetch data from Nasdaq API day by day
         for day in range(1, days_in_month + 1):
             current_date = date(year, month, day)
 
@@ -114,22 +112,18 @@ def lambda_handler(event, context):
                     "Source": "Nasdaq"
                 })
 
-        # Fetch data from Finnhub API for the entire month
         from_date = f"{year}-{month:02}-01"
         to_date = f"{year}-{month:02}-{days_in_month:02}"
 
         finnhub_data = fetch_finnhub_earnings(from_date, to_date)
 
-        # Add Finnhub data for symbols not already in Nasdaq data
         for item in finnhub_data:
             symbol = item.get("symbol")
             earnings_date = item.get("date")
 
-            # Skip if symbol already in Nasdaq data
             if symbol in nasdaq_symbols:
                 continue
 
-            # Skip if date is a weekend
             try:
                 date_obj = date.fromisoformat(earnings_date)
                 if date_obj.weekday() >= 5:
@@ -137,7 +131,6 @@ def lambda_handler(event, context):
             except:
                 continue
 
-            # Map Finnhub 'hour' to a more readable time format
             hour = item.get("hour", "")
             time_mapping = {
                 "bmo": "before-market-open",
@@ -147,10 +140,10 @@ def lambda_handler(event, context):
             time_display = time_mapping.get(hour, hour)
 
             records.append({
-                "Company": symbol,  # Finnhub doesn't provide company name in this endpoint
+                "Company": symbol,
                 "Date": earnings_date,
                 "EPS Estimate": item.get("epsEstimate"),
-                "Market Cap": None,  # Not provided by Finnhub
+                "Market Cap": None,
                 "Symbol": symbol,
                 "Time": time_display,
                 "Source": "Finnhub"
@@ -158,7 +151,6 @@ def lambda_handler(event, context):
 
         df = DataFrame(records)
 
-        # Sort by date and symbol for better organization
         if not df.empty:
             df = df.sort_values(by=["Date", "Symbol"]).reset_index(drop=True)
 

@@ -99,8 +99,7 @@ def lambda_handler(event, context):
                     "time": symbol_time,
                     "percentage_change_90d": round(percentage_change_90d, 4)
                 }
-        except Exception as e:
-            print(f"Error processing symbol {symbol}: {str(e)}")
+        except Exception:
             continue
 
     save_to_s3(companies, year, month)
