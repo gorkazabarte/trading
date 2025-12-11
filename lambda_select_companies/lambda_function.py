@@ -90,7 +90,8 @@ def lambda_handler(event, context):
         timestamp = now.strftime("%Y%m%d_%H%M%S")
         year = now.year
         month = now.month
-        s3_key = f"{year}/{month:02}/selected_companies_{timestamp}.txt"
+        day = now.day
+        s3_key = f"{year}/{month:02}/{day:02}/selected_companies.txt"
 
         s3.put_object(
             Bucket=S3_BUCKET,

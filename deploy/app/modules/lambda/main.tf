@@ -157,7 +157,8 @@ module "lambda_function_select_companies" {
   create_package = false
   description    = "AWS Lambda function to update selected companies in S3"
   environment_variables = {
-    DYNAMODB_TABLE = "${local.dynamo_db_table}"
+    S3_BUCKET = "${local.aws_s3_bucket}"
+    S3_KEY    = "selected_companies.json"
   }
   function_name  = "${local.environment}-${local.app_name}-select-companies"
   image_uri      = "${local.aws_account_id}.dkr.ecr.${local.aws_region}.amazonaws.com/${local.environment}-${local.app_name}-select-companies:${local.app_version}"
