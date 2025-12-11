@@ -7,9 +7,20 @@ resource "aws_s3_bucket" "data" {
   bucket = "${var.environment}-${var.app_name}-data-storage"
 }
 
-resource "aws_s3_bucket_acl" "example" {
+resource "aws_s3_bucket_ownership_controls" "data" {
   bucket = aws_s3_bucket.data.id
-  acl    = "private"
+
+  rule {
+    object_ownership = "BucketOwnerEnforced"
+  }
+}
+
+resource "aws_s3_bucket_public_access_block" "data" {
+  block_public_acls       = true
+  block_public_policy     = true
+  bucket = aws_s3_bucket.data.id
+  ignore_public_acls      = true
+  restrict_public_buckets = true
 }
 
 resource "aws_s3_bucket_versioning" "versioning_example" {
