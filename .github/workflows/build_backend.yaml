@@ -17,4 +17,5 @@ jobs:
           docker build --file ./lambda_download_info/Dockerfile ./lambda_download_info
           docker build --file ./lambda_get_calendar/Dockerfile ./lambda_get_calendar
           docker build --file ./lambda_filter_info/Dockerfile ./lambda_filter_info
+          docker build --file ./lambda_select_companies/Dockerfile ./lambda_select_companies
           docker build --file ./lambda_update_settings/Dockerfile ./lambda_update_settings

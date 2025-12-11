@@ -28,7 +28,6 @@ module "lambda_function_download_info" {
   create_package = false
   description    = "Donwload information using web scraping"
   environment_variables = {
-    API_KEY   = "VF5Y4DWQGRZPIYY9"
     S3_BUCKET = "${local.aws_s3_bucket}"
   }
   function_name  = "${local.environment}-${local.app_name}-download-info"
@@ -67,7 +66,6 @@ module "lambda_function_get_calendar" {
   create_package = false
   description    = "Return calendar response to API Gateway"
   environment_variables = {
-    API_KEY   = "VF5Y4DWQGRZPIYY9"
     S3_BUCKET = "${local.aws_s3_bucket}"
   }
   function_name  = "${local.environment}-${local.app_name}-get-calendar"
@@ -114,7 +112,6 @@ module "lambda_function_filter_info" {
   create_package = false
   description    = "Filter companies based on criteria and store in S3"
   environment_variables = {
-    API_KEY   = "VF5Y4DWQGRZPIYY9"
     S3_BUCKET = "${local.aws_s3_bucket}"
   }
   function_name  = "${local.environment}-${local.app_name}-filter-info"
