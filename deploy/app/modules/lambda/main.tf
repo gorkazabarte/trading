@@ -123,6 +123,52 @@ module "lambda_function_filter_info" {
   version        = "8.1.2"
 }
 
+resource "aws_lambda_permission" "api_gateway_invoke_select_companies" {
+  statement_id  = "AllowAPIGatewayInvoke"
+  action        = "lambda:InvokeFunction"
+  function_name = module.lambda_function_update_settings.lambda_function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "arn:aws:execute-api:${local.aws_region}:${local.aws_account_id}:*/*"
+}
+
+resource "aws_iam_policy" "lambda_policy_select_companies" {
+  name        = "${local.environment}-${local.app_name}-select-companies"
+  description = "Allow Lambda to create a S3 object with selected companies"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["s3:GetObject"]
+        Resource = "arn:aws:s3:::${local.aws_s3_bucket}/*"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["s3:ListBucket"]
+        Resource = "arn:aws:s3:::${local.aws_s3_bucket}"
+      }
+    ]
+  })
+}
+
+module "lambda_function_select_companies" {
+  source         = "terraform-aws-modules/lambda/aws"
+  attach_policy  = true
+  create_package = false
+  description    = "AWS Lambda function to update selected companies in S3"
+  environment_variables = {
+    DYNAMODB_TABLE = "${local.dynamo_db_table}"
+  }
+  function_name  = "${local.environment}-${local.app_name}-select-companies"
+  image_uri      = "${local.aws_account_id}.dkr.ecr.${local.aws_region}.amazonaws.com/${local.environment}-${local.app_name}-select-companies:${local.app_version}"
+  memory_size	 = 256
+  timeout        = 300
+  package_type   = "Image"
+  policy         = aws_iam_policy.lambda_policy_update_settings.arn
+  version        = "8.1.2"
+}
+
 resource "aws_lambda_permission" "api_gateway_invoke_update_settings" {
   statement_id  = "AllowAPIGatewayInvoke"
   action        = "lambda:InvokeFunction"
