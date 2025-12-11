@@ -77,7 +77,7 @@ module "lambda_function_get_calendar" {
 }
 
 resource "aws_lambda_permission" "api_gateway_invoke_get_calendar" {
-  statement_id  = "AllowAPIGatewayInvoke"
+  statement_id  = "AllowAPIGatewayGetCalendarInvoke"
   action        = "lambda:InvokeFunction"
   function_name = module.lambda_function_get_calendar.lambda_function_name
   principal     = "apigateway.amazonaws.com"
@@ -123,7 +123,7 @@ module "lambda_function_filter_info" {
 }
 
 resource "aws_lambda_permission" "api_gateway_invoke_select_companies" {
-  statement_id  = "AllowAPIGatewayInvoke"
+  statement_id  = "AllowAPIGatewaySelectCompaniesInvoke"
   action        = "lambda:InvokeFunction"
   function_name = module.lambda_function_update_settings.lambda_function_name
   principal     = "apigateway.amazonaws.com"
@@ -165,12 +165,12 @@ module "lambda_function_select_companies" {
   memory_size	 = 256
   timeout        = 300
   package_type   = "Image"
-  policy         = aws_iam_policy.lambda_policy_update_settings.arn
+  policy         = aws_iam_policy.lambda_policy_select_companies.arn
   version        = "8.1.2"
 }
 
 resource "aws_lambda_permission" "api_gateway_invoke_update_settings" {
-  statement_id  = "AllowAPIGatewayInvoke"
+  statement_id  = "AllowAPIGatewayUpdateSettingsInvoke"
   action        = "lambda:InvokeFunction"
   function_name = module.lambda_function_update_settings.lambda_function_name
   principal     = "apigateway.amazonaws.com"
