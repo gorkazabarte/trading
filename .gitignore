@@ -1,3 +1,9 @@
+# Logs
+**/logs/**
+
+# Business logic files
+**/files/**
+
 # JetBrains
 **/.idea
 

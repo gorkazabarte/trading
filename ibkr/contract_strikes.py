@@ -25,15 +25,8 @@ def contract_strikes():
     request_url = "".join([base_url, endpoint, "?", query_params])
     contract_req = get(request_url, verify=False)
 
-    print(f"Request URL: {request_url}")
-    print(f"Response: {contract_req}")
-
     if contract_req.status_code == 200:
         contract_json = dumps(contract_req.json(), indent=2)
-        print(contract_json)
     else:
-        print(f"Error: {contract_req.status_code}")
-        print(f"Response text: {contract_req.text}")
+        raise Exception(f"Error: {contract_req.status_code}, Response text: {contract_req.text}")
 
-if __name__ == "__main__":
-    contract_strikes()

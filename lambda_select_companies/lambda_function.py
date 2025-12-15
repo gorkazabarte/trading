@@ -46,10 +46,13 @@ def lambda_handler(event, context):
                 }
             }
 
-        if 'companies' not in body:
+        required_fields = ['companies', 'year', 'month', 'day']
+        missing_fields = [field for field in required_fields if field not in body]
+
+        if missing_fields:
             return {
                 "statusCode": 400,
-                "body": dumps({"error": "Missing required field: 'companies'"}),
+                "body": dumps({"error": f"Missing required field(s): {', '.join(missing_fields)}"}),
                 "headers": {
                     "Content-Type": "application/json",
                     "Access-Control-Allow-Origin": "*",
@@ -59,6 +62,63 @@ def lambda_handler(event, context):
             }
 
         companies = body['companies']
+        year = body['year']
+        month = body['month']
+        day = body['day']
+
+        try:
+            year = int(year)
+            month = int(month)
+            day = int(day)
+        except (ValueError, TypeError):
+            return {
+                "statusCode": 400,
+                "body": dumps({"error": "year, month, and day must be valid integers"}),
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Methods": "POST, OPTIONS, GET",
+                    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With"
+                }
+            }
+
+        if not (1 <= month <= 12):
+            return {
+                "statusCode": 400,
+                "body": dumps({"error": "month must be between 1 and 12"}),
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Methods": "POST, OPTIONS, GET",
+                    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With"
+                }
+            }
+
+        if not (1 <= day <= 31):
+            return {
+                "statusCode": 400,
+                "body": dumps({"error": "day must be between 1 and 31"}),
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Methods": "POST, OPTIONS, GET",
+                    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With"
+                }
+            }
+
+        try:
+            datetime(year, month, day)
+        except ValueError as e:
+            return {
+                "statusCode": 400,
+                "body": dumps({"error": f"Invalid date: {str(e)}"}),
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Methods": "POST, OPTIONS, GET",
+                    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With"
+                }
+            }
 
         if not isinstance(companies, list):
             return {
@@ -88,9 +148,7 @@ def lambda_handler(event, context):
 
         now = datetime.now(timezone.utc)
         timestamp = now.strftime("%Y%m%d_%H%M%S")
-        year = now.year
-        month = now.month
-        day = now.day
+
         s3_key = f"{year}/{month:02}/{day:02}/selected_companies.txt"
 
         s3.put_object(

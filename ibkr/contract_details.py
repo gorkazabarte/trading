@@ -9,19 +9,16 @@ from urllib3.exceptions import InsecureRequestWarning
 
 disable_warnings(InsecureRequestWarning)
 
-def contract_search():
+def contract_search(symbol: str) -> str:
     base_url = "https://localhost:5001/v1/api/"
     endpoint = "iserver/secdef/search"
 
     json_body: dict = {
         "name": False,
-        "symbol": "AEVA",
+        "symbol": symbol,
         "secType": "STK"
     }
 
     contract_req = post(url=base_url + endpoint, json=json_body, verify=False)
-    contract_json = dumps(contract_req.json(), indent=2)
-    print(contract_json)
+    return contract_req.json()[0].get('conid')
 
-if __name__ == "__main__":
-    contract_search()
