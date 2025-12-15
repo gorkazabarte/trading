@@ -1,4 +1,4 @@
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone, timedelta, time
 from json import dumps, loads
 from logging import INFO, Logger
 from os import makedirs, path
@@ -12,12 +12,18 @@ from ibkr.historical_data import get_market_snapshot
 from ibkr.market_data_parser import format_market_data_log, parse_market_data
 from logs.setup import setup_logging
 
+MARKET_CLOSE_TIME = time(16, 0)
+MINUTES_BEFORE_CLOSE_TO_SELL = 10
 S3_BUCKET = 'dev-trading-data-storage'
-UPDATE_INTERVAL = 5
+UPDATE_INTERVAL = 0
 
+bought_shares_today: Dict[str, float] = {}
 
 def create_company_data(ticker: str, parsed_data: Dict, closing_price: Optional[str], year: int, month: int, day: int) -> Dict:
     now = datetime.now(timezone.utc)
+
+    price_change_from_close_pct = calculate_price_change_from_close(parsed_data.get('last_price'), closing_price)
+    price_difference_from_close = calculate_price_difference_from_close(parsed_data.get('last_price'), closing_price)
 
     return {
         'ticker': ticker,
@@ -26,6 +32,8 @@ def create_company_data(ticker: str, parsed_data: Dict, closing_price: Optional[
         'conid': parsed_data.get('conid'),
         'last_price': parsed_data.get('last_price'),
         'closing_price': closing_price,
+        'price_difference_from_close': price_difference_from_close,
+        'price_change_from_close_pct': price_change_from_close_pct,
         'bid_price': parsed_data.get('bid_price'),
         'ask_price': parsed_data.get('ask_price'),
         'volume': parsed_data.get('volume'),
@@ -43,6 +51,52 @@ def create_directories(year: int, month: int, day: int) -> str:
     makedirs(market_data_dir, exist_ok=True)
     makedirs('./files', exist_ok=True)
     return market_data_dir
+
+
+def calculate_minutes_until_close(current_time: time) -> int:
+    close_datetime = datetime.combine(datetime.today(), MARKET_CLOSE_TIME)
+    current_datetime = datetime.combine(datetime.today(), current_time)
+    time_diff = close_datetime - current_datetime
+    return int(time_diff.total_seconds() / 60)
+
+
+def calculate_price_change_from_close(last_price: Optional[str], closing_price: Optional[str]) -> Optional[float]:
+    if not last_price or not closing_price:
+        return None
+
+    try:
+        last = float(last_price)
+        close = float(closing_price)
+        return round(((last - close) / close) * 100, 2)
+    except (ValueError, TypeError):
+        return None
+
+
+def calculate_price_difference_from_close(last_price: Optional[str], closing_price: Optional[str]) -> Optional[float]:
+    if not last_price or not closing_price:
+        return None
+
+    try:
+        last = float(last_price)
+        close = float(closing_price)
+        return round(last - close, 2)
+    except (ValueError, TypeError):
+        return None
+
+
+def calculate_price_change_percentage(current_price: float, closing_price: float) -> float:
+    return ((current_price - closing_price) / closing_price) * 100
+
+
+def calculate_buy_range_prices(closing_price: float) -> tuple[float, float]:
+    lower_threshold = closing_price * 1.008
+    upper_threshold = closing_price * 1.0095
+    return lower_threshold, upper_threshold
+
+
+def format_buy_range(closing_price: float) -> str:
+    lower, upper = calculate_buy_range_prices(closing_price)
+    return f"[Buy Range: ${lower:.2f} - ${upper:.2f}]"
 
 
 def determine_closing_price(parsed_data: Dict, existing_closing_price: Optional[str], logger: Logger, ticker: str) -> Optional[str]:
@@ -66,11 +120,13 @@ def determine_closing_price(parsed_data: Dict, existing_closing_price: Optional[
 def download_companies_list(s3_client, bucket: str, year: int, month: int, day: int, logger: Logger) -> Optional[List[str]]:
     try:
         file_path = f'./files/{year}/{month}/{day}/selected_companies.txt'
-        s3_client.download_file(bucket, f'{year}/{month}/{day}/selected_companies.txt', file_path)
+        s3_key = f'{year}/{month}/{day}/selected_companies.txt'
+        s3_client.download_file(bucket, s3_key, file_path)
         with open(file_path, 'r') as f:
             return f.read().splitlines()
     except Exception as e:
-        logger.error(f"Companies were not selected for {year}/{month}/{day}.")
+        logger.error(f"Companies were not selected for {year}/{month}/{day}. Error: {str(e)}")
+        logger.error(f"Expected S3 location: s3://{bucket}/{year}/{month}/{day}/selected_companies.txt")
         return None
 
 
@@ -80,7 +136,8 @@ def download_settings_file(s3_client, bucket: str, logger: Logger) -> Optional[D
         with open('./files/settings.json', 'r') as f:
             return loads(f.read())
     except Exception as e:
-        logger.error(f"Failed to download settings.json: {e}")
+        logger.error(f"Failed to download settings.json: {str(e)}")
+        logger.error(f"Expected S3 location: s3://{bucket}/settings.json")
         return None
 
 
@@ -106,6 +163,12 @@ def fetch_and_parse_market_data(ticker: str, logger: Logger) -> Optional[Dict]:
         return None
 
 
+def get_current_eastern_time() -> time:
+    eastern_offset = timedelta(hours=-5)
+    eastern_time = datetime.now(timezone.utc) + eastern_offset
+    return eastern_time.time()
+
+
 def get_current_date() -> tuple[int, int, int]:
     now = datetime.now(timezone.utc)
     return now.year, now.month, now.day
@@ -122,6 +185,24 @@ def get_existing_closing_price(file_path: str, logger: Logger) -> Optional[str]:
     except Exception as e:
         logger.warning(f"Could not read existing file {file_path}: {e}")
         return None
+
+
+def handle_buy_action(ticker: str, current_price: float, logger: Logger) -> None:
+    bought_shares_today[ticker] = current_price
+    logger.info(f"POSITION OPENED - {ticker}: Bought at ${current_price:.2f}")
+
+
+def handle_end_of_day_sales(logger: Logger) -> None:
+    if not is_close_to_market_close():
+        return
+
+    if len(bought_shares_today) == 0:
+        return
+
+    logger.info(f"MARKET CLOSING SOON - {len(bought_shares_today)} position(s) to close")
+
+    for ticker in list(bought_shares_today):
+        sell_at_market_price(ticker, logger)
 
 
 def has_previous_close(parsed_data: Dict) -> bool:
@@ -145,44 +226,102 @@ def log_next_update_time(update_interval: int, logger: Logger) -> None:
     logger.info(f"Next update at: {next_update.strftime('%Y-%m-%d %H:%M:%S UTC')}")
 
 
-def main():
-    logger = setup_logging(log_file='logs/app.log', log_level=INFO)
-    s3_client = client('s3')
+def evaluate_and_log_trading_opportunity(ticker: str, parsed_data: Dict, closing_price: Optional[str], logger: Logger) -> None:
+    if not should_evaluate_trading_opportunity(parsed_data, closing_price):
+        return
 
-    logger.info("Trading application has started successfully.")
-    logger.info(f"Market data will update every {UPDATE_INTERVAL} seconds")
-
-    while True:
-        success = run_market_data_collection_cycle(s3_client, logger)
-
-        if success:
-            log_next_update_time(UPDATE_INTERVAL, logger)
-
-        sleep(UPDATE_INTERVAL)
+    try:
+        current_price = float(parsed_data.get('last_price'))
+        close_price_value = float(closing_price)
+        evaluate_trading_opportunity(ticker, current_price, close_price_value, logger)
+    except (ValueError, TypeError) as e:
+        logger.warning(f"{ticker} - Could not evaluate trading opportunity: {e}")
 
 
-def process_all_companies(companies: List[str], market_data_dir: str, year: int, month: int, day: int, logger: Logger) -> None:
+def extract_current_price(ticker: str, market_data_by_ticker: Dict[str, Dict]) -> Optional[float]:
+    if ticker not in market_data_by_ticker:
+        return None
+
+    parsed_data = market_data_by_ticker[ticker]
+    last_price_str = parsed_data.get('last_price')
+
+    if not last_price_str:
+        return None
+
+    try:
+        return float(last_price_str)
+    except (ValueError, TypeError):
+        return None
+
+
+def format_position_with_price(ticker: str, buy_price: float, current_price: float) -> str:
+    price_change = current_price - buy_price
+    price_change_pct = (price_change / buy_price) * 100
+    return f"{ticker} [Buy: ${buy_price:.2f} | Now: ${current_price:.2f} | P/L: {price_change:+.2f} ({price_change_pct:+.2f}%)]"
+
+
+def format_position_without_price(ticker: str, buy_price: float) -> str:
+    return f"{ticker} [Buy: ${buy_price:.2f} | Now: N/A]"
+
+
+def format_position_detail(ticker: str, buy_price: float, market_data_by_ticker: Dict[str, Dict]) -> str:
+    current_price = extract_current_price(ticker, market_data_by_ticker)
+
+    if current_price:
+        return format_position_with_price(ticker, buy_price, current_price)
+    else:
+        return format_position_without_price(ticker, buy_price)
+
+
+def has_open_positions() -> bool:
+    return len(bought_shares_today) > 0
+
+
+def log_positions_summary(market_data_by_ticker: Dict[str, Dict], logger: Logger) -> None:
+    if not has_open_positions():
+        logger.info("CURRENT POSITIONS: None")
+        return
+
+    positions_details = [
+        format_position_detail(ticker, buy_price, market_data_by_ticker)
+        for ticker, buy_price in sorted(bought_shares_today.items())
+    ]
+
+    positions_summary = ", ".join(positions_details)
+    logger.info(f"CURRENT POSITIONS ({len(bought_shares_today)}): {positions_summary}")
+
+
+def process_all_companies(companies: List[str], market_data_dir: str, year: int, month: int, day: int, logger: Logger) -> Dict[str, Dict]:
     logger.info(f"Updating market data for {len(companies)} companies...")
 
+    market_data_by_ticker = {}
+
     for company in companies:
-        process_company(company, market_data_dir, year, month, day, logger)
+        parsed_data = process_company(company, market_data_dir, year, month, day, logger)
+        if parsed_data:
+            market_data_by_ticker[company] = parsed_data
+
+    return market_data_by_ticker
 
 
-def process_company(ticker: str, market_data_dir: str, year: int, month: int, day: int, logger: Logger) -> bool:
+def process_company(ticker: str, market_data_dir: str, year: int, month: int, day: int, logger: Logger) -> Optional[Dict]:
     parsed_data = fetch_and_parse_market_data(ticker, logger)
     if parsed_data is None:
-        return False
+        return None
 
     file_path = f"{market_data_dir}/{ticker}.json"
     existing_closing_price = get_existing_closing_price(file_path, logger)
-
     closing_price = determine_closing_price(parsed_data, existing_closing_price, logger, ticker)
+
+    evaluate_and_log_trading_opportunity(ticker, parsed_data, closing_price, logger)
+
     company_data = create_company_data(ticker, parsed_data, closing_price, year, month, day)
+    save_company_data(file_path, company_data, logger, ticker)
 
-    return save_company_data(file_path, company_data, logger, ticker)
+    return parsed_data
 
 
-def run_market_data_collection_cycle(s3_client, logger: Logger) -> bool:
+def run_market_data_collection_cycle(s3_client, logger: Logger) -> Optional[Dict[str, Dict]]:
     year, month, day = get_current_date()
     market_data_dir = create_directories(year, month, day)
 
@@ -190,11 +329,11 @@ def run_market_data_collection_cycle(s3_client, logger: Logger) -> bool:
     companies = download_companies_list(s3_client, S3_BUCKET, year, month, day, logger)
 
     if not has_required_dependencies(settings, companies):
-        return False
+        return None
 
-    process_all_companies(companies, market_data_dir, year, month, day, logger)
+    market_data_by_ticker = process_all_companies(companies, market_data_dir, year, month, day, logger)
 
-    return True
+    return market_data_by_ticker
 
 
 def save_company_data(file_path: str, company_data: Dict, logger: Logger, ticker: str) -> bool:
@@ -208,10 +347,91 @@ def save_company_data(file_path: str, company_data: Dict, logger: Logger, ticker
         return False
 
 
+def sell_at_market_price(ticker: str, logger: Logger) -> None:
+    buy_price = bought_shares_today.get(ticker)
+    if buy_price:
+        logger.info(f"SELLING AT MARKET CLOSE - {ticker}: Bought at ${buy_price:.2f}")
+    else:
+        logger.info(f"SELLING AT MARKET CLOSE - {ticker}: Closing position before market close")
+
+    bought_shares_today.pop(ticker, None)
+    logger.info(f"POSITION CLOSED - {ticker}: Removed from tracking")
+
+
+def should_evaluate_trading_opportunity(parsed_data: Dict, closing_price: Optional[str]) -> bool:
+    return is_market_open(parsed_data) and closing_price is not None
+
+
 def should_preserve_existing_closing_price(existing_closing_price: Optional[str]) -> bool:
     return existing_closing_price is not None
 
 
-if __name__ == "__main__":
-    main()
+def evaluate_trading_opportunity(ticker: str, current_price: float, closing_price: float, logger: Logger) -> None:
+    price_change_pct = calculate_price_change_percentage(current_price, closing_price)
 
+    if is_price_below_close(price_change_pct):
+        log_price_below_close(ticker, current_price, closing_price, price_change_pct, logger)
+    elif is_price_above_threshold(price_change_pct):
+        log_price_too_high(ticker, current_price, closing_price, price_change_pct, logger)
+    elif is_within_buy_range(price_change_pct):
+        log_buy_opportunity(ticker, current_price, closing_price, price_change_pct, logger)
+    else:
+        log_within_range_no_action(ticker, current_price, closing_price, price_change_pct, logger)
+
+
+def is_close_to_market_close() -> bool:
+    current_time = get_current_eastern_time()
+    minutes_until_close = calculate_minutes_until_close(current_time)
+    return 0 <= minutes_until_close <= MINUTES_BEFORE_CLOSE_TO_SELL
+
+
+def is_market_open(parsed_data: Dict) -> bool:
+    return not parsed_data.get('is_market_closed', True)
+
+
+def is_price_above_threshold(price_change_pct: float) -> bool:
+    return price_change_pct >= 1.0
+
+
+def is_price_below_close(price_change_pct: float) -> bool:
+    return price_change_pct < 0
+
+
+def is_within_buy_range(price_change_pct: float) -> bool:
+    return 0.8 <= price_change_pct <= 0.95
+
+
+def log_buy_opportunity(ticker: str, current_price: float, closing_price: float, price_change_pct: float, logger: Logger) -> None:
+    buy_range = format_buy_range(closing_price)
+    logger.info(f"BUY OPPORTUNITY - {ticker}: Current ${current_price:.2f} | Close ${closing_price:.2f} {buy_range} | Change +{price_change_pct:.2f}% | Action: READY TO BUY")
+    handle_buy_action(ticker, current_price, logger)
+
+
+def log_price_below_close(ticker: str, current_price: float, closing_price: float, price_change_pct: float, logger: Logger) -> None:
+    buy_range = format_buy_range(closing_price)
+    logger.info(f"BELOW CLOSE - {ticker}: Current ${current_price:.2f} | Close ${closing_price:.2f} {buy_range} | Change {price_change_pct:.2f}% | Action: WAIT")
+
+
+def log_price_too_high(ticker: str, current_price: float, closing_price: float, price_change_pct: float, logger: Logger) -> None:
+    buy_range = format_buy_range(closing_price)
+    logger.info(f"ABOVE THRESHOLD - {ticker}: Current ${current_price:.2f} | Close ${closing_price:.2f} {buy_range} | Change +{price_change_pct:.2f}% | Action: TOO HIGH")
+
+
+def log_within_range_no_action(ticker: str, current_price: float, closing_price: float, price_change_pct: float, logger: Logger) -> None:
+    buy_range = format_buy_range(closing_price)
+    logger.info(f"NEUTRAL - {ticker}: Current ${current_price:.2f} | Close ${closing_price:.2f} {buy_range} | Change +{price_change_pct:.2f}% | Action: MONITORING")
+
+
+if __name__ == "__main__":
+    logger = setup_logging(log_file='logs/app.log', log_level=INFO)
+    s3_client = client('s3')
+
+    logger.info("Trading application has started successfully.")
+    logger.info(f"Market data will update every {UPDATE_INTERVAL} seconds")
+
+    while True:
+        market_data_by_ticker = run_market_data_collection_cycle(s3_client, logger)
+
+        if market_data_by_ticker is not None:
+            handle_end_of_day_sales(logger)
+            log_positions_summary(market_data_by_ticker, logger)

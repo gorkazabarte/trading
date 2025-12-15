@@ -24,8 +24,8 @@ def build_company_data(symbol: str, symbol_data, performance: dict) -> dict:
     }
 
 
-def build_s3_key(year: int, month: int) -> str:
-    return f"{year}/{month:02}/filtered_companies.json"
+def build_s3_key(year: int, month: int, day: int) -> str:
+    return f"{year}/{month:02}/{day:02}/filtered_companies.json"
 
 
 def calculate_date_range() -> tuple[datetime, datetime]:
@@ -34,8 +34,8 @@ def calculate_date_range() -> tuple[datetime, datetime]:
     return start, end
 
 
-def download_csv_from_s3(year: int, month: int) -> str:
-    key = f"{year}/{month:02}/all_companies.csv"
+def download_csv_from_s3(year: int, month: int, day: int) -> str:
+    key = f"{year}/{month:02}/{day:02}/all_companies.csv"
     obj = s3.get_object(Bucket=S3_BUCKET, Key=key)
     return obj["Body"].read().decode("utf-8")
 
@@ -45,7 +45,7 @@ def extract_unique_symbols(df) -> list:
 
 
 def filter_before_market_open(df):
-    return df[df["Time"] != "before-market-open"].copy()
+    return df[df["Earnings Call Time"] == "AMC"].copy()
 
 
 def get_stock_performance(ticker: str) -> dict:
@@ -74,16 +74,17 @@ def get_stock_performance(ticker: str) -> dict:
     }
 
 
-def get_target_month() -> tuple[int, int]:
+def get_target_day() -> tuple[int, int, int]:
     today = date.today()
 
     env_year = environ.get("YEAR")
     env_month = environ.get("MONTH")
+    env_day = environ.get("DAY")
 
-    if env_year and env_month:
-        return int(env_year), int(env_month)
+    if env_year and env_month and env_day:
+        return int(env_year), int(env_month), int(env_day)
 
-    return today.year, today.month
+    return today.year, today.month, today.day
 
 
 def is_within_price_range(current_price: float) -> bool:
@@ -91,16 +92,16 @@ def is_within_price_range(current_price: float) -> bool:
 
 
 def lambda_handler(event, context):
-    year, month = get_target_month()
+    year, month, day = get_target_day()
 
-    csv_data = download_csv_from_s3(year, month)
+    csv_data = download_csv_from_s3(year, month, day)
     df = read_csv(StringIO(csv_data))
     df_filtered = filter_before_market_open(df)
 
     symbols = extract_unique_symbols(df_filtered)
     companies = process_symbols(symbols, df_filtered)
 
-    save_to_s3(companies, year, month)
+    save_to_s3(companies, year, month, day)
 
     return {
         "statusCode": 200,
@@ -135,8 +136,8 @@ def process_symbols(symbols: list, df_filtered) -> dict:
     return companies
 
 
-def save_to_s3(companies: dict, year: int, month: int) -> None:
-    key = build_s3_key(year, month)
+def save_to_s3(companies: dict, year: int, month: int, day: int) -> None:
+    key = build_s3_key(year, month, day)
     s3.put_object(
         Bucket=S3_BUCKET,
         Key=key,

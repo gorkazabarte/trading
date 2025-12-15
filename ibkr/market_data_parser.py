@@ -1,8 +1,22 @@
-from datetime import datetime
+from datetime import datetime, time
 
-DELAYED_PAST_CLOSE_CODE = 'DPB'
 CLOSING_PRICE_PREFIX = 'C'
+DELAYED_PAST_CLOSE_CODE = 'DPB'
+MARKET_CLOSE_TIME = time(16, 0)
+MARKET_OPEN_TIME = time(9, 30)
 OPENING_PRICE_PREFIX = 'O'
+
+
+def get_current_eastern_time() -> time:
+    from datetime import timedelta, timezone
+    eastern_offset = timedelta(hours=-5)
+    eastern_time = datetime.now(timezone.utc) + eastern_offset
+    return eastern_time.time()
+
+
+def is_during_market_hours() -> bool:
+    current_time = get_current_eastern_time()
+    return MARKET_OPEN_TIME <= current_time <= MARKET_CLOSE_TIME
 
 
 def create_empty_result(market_data: dict) -> dict:
@@ -134,6 +148,9 @@ def parse_market_data(market_data: dict) -> dict:
 
     parse_timestamp(market_data, result)
     parse_spread(result)
+
+    if is_during_market_hours() and result['price_type'] == 'Last Trade':
+        result['is_market_closed'] = False
 
     return result
 
