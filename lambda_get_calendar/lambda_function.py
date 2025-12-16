@@ -12,8 +12,8 @@ S3_BUCKET = environ.get("S3_BUCKET")
 s3 = client("s3")
 
 
-def build_s3_key(year: int, month: int) -> str:
-    return f"{year}/{month:02d}/filtered_companies.json"
+def build_s3_key(year: int, month: int, day: int) -> str:
+    return f"{year}/{month:02d}/{day:02}/filtered_companies.json"
 
 
 def create_response(status_code: int, body: dict) -> dict:
@@ -24,11 +24,12 @@ def create_response(status_code: int, body: dict) -> dict:
     }
 
 
-def extract_path_parameters(event: dict) -> tuple[str, str]:
+def extract_path_parameters(event: dict) -> tuple[str, str, str]:
     path_params = event.get("pathParameters", {})
     year = path_params.get("year")
     month = path_params.get("month")
-    return year, month
+    day = path_params.get("day")
+    return year, month, day
 
 
 def fetch_calendar_data_from_s3(key: str) -> str:
@@ -36,21 +37,25 @@ def fetch_calendar_data_from_s3(key: str) -> str:
     return response["Body"].read().decode("utf-8")
 
 
+def is_valid_day(day: int) -> bool:
+    return 1 <= day <= 31
+
+
 def is_valid_month(month: int) -> bool:
     return 1 <= month <= 12
 
 
 def lambda_handler(event, context):
-    year, month = extract_path_parameters(event)
+    year, month, day = extract_path_parameters(event)
 
     if not year or not month:
         return create_response(400, {"error": "Missing year or month parameters"})
 
-    is_valid, year_int, month_int, error_message = parse_and_validate_dates(year, month)
+    is_valid, year_int, month_int, day_int, error_message = parse_and_validate_dates(year, month, day)
     if not is_valid:
         return create_response(400, {"error": error_message})
 
-    key = build_s3_key(year_int, month_int)
+    key = build_s3_key(year_int, month_int, day_int)
 
     try:
         data = fetch_calendar_data_from_s3(key)
@@ -65,7 +70,7 @@ def lambda_handler(event, context):
     except s3.exceptions.NoSuchKey:
         return create_response(404, {
             "error": "Calendar data not found",
-            "message": f"No data available for {year}/{month:02d}"
+            "message": f"No data available for {year}/{month:02d}/{day:02d}"
         })
 
     except s3.exceptions.NoSuchBucket:
@@ -78,18 +83,22 @@ def lambda_handler(event, context):
         return create_response(500, {"error": "Internal server error"})
 
 
-def parse_and_validate_dates(year: str, month: str) -> tuple[bool, int, int, str]:
+def parse_and_validate_dates(year: str, month: str, day: str) -> tuple[bool, int, int, int, str]:
     try:
         year_int = int(year)
         month_int = int(month)
+        day_int = int(day)
 
         if not is_valid_month(month_int):
-            return False, 0, 0, "Month must be between 1 and 12"
+            return False, 0, 0, 0, "Month must be between 1 and 12"
 
-        return True, year_int, month_int, ""
+        if not is_valid_day(day_int):
+            return False, 0, 0, 0, "Day must be between 1 and 31"
+
+        return True, year_int, month_int, day_int, ""
 
     except ValueError as e:
-        return False, 0, 0, f"Invalid year or month format: {str(e)}"
+        return False, 0, 0, 0, f"Invalid year or month or day format: {str(e)}"
 
 
 def validate_json_format(data: str) -> None:
