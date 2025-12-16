@@ -88,15 +88,21 @@ def get_stock_performance(ticker: str) -> dict:
     }
 
 
-def get_target_day() -> tuple[int, int, int]:
+def get_target_day(event: dict) -> tuple[int, int, int]:
+    body = event.get("body", {})
+
+    if isinstance(body, str):
+        from json import loads
+        body = loads(body)
+
+    year = body.get("year")
+    month = body.get("month")
+    day = body.get("day")
+
+    if year and month and day:
+        return int(year), int(month), int(day)
+
     today = date.today()
-
-    env_year = environ.get("YEAR")
-    env_month = environ.get("MONTH")
-    env_day = environ.get("DAY")
-
-    if env_year and env_month and env_day:
-        return int(env_year), int(env_month), int(env_day)
 
     return today.year, today.month, today.day
 
@@ -106,7 +112,7 @@ def is_within_price_range(current_price: float) -> bool:
 
 
 def lambda_handler(event, context):
-    year, month, day = get_target_day()
+    year, month, day = get_target_day(event)
 
     csv_data = download_csv_from_s3(year, month, day)
     df = read_csv(StringIO(csv_data), sep=';')
@@ -162,4 +168,3 @@ def save_to_s3(companies: dict, year: int, month: int, day: int) -> None:
 
 def should_include_symbol(current_price: float, percentage_change: float) -> bool:
     return is_within_price_range(current_price) and meets_percentage_threshold(percentage_change)
-
