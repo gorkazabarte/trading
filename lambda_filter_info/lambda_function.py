@@ -17,10 +17,13 @@ s3 = client("s3")
 
 def build_company_data(symbol: str, symbol_data, performance: dict) -> dict:
     return {
+        "symbol": symbol,
+        "company": symbol_data.get("Company", ""),
+        "event_name": symbol_data.get("Event Name", ""),
+        "earnings_call_time": symbol_data.get("Earnings Call Time", ""),
         "current_price": round(performance["current_price"], 4),
-        "date": str(symbol_data["Date"]),
-        "time": symbol_data["Time"],
-        "percentage_change_90d": round(performance["percent_change_90d"], 4)
+        "percentage_change_90d": round(performance["percent_change_90d"], 4),
+        "market_cap": symbol_data.get("Market Cap", "")
     }
 
 
@@ -44,7 +47,7 @@ def extract_unique_symbols(df) -> list:
     return df["Symbol"].dropna().unique().tolist()
 
 
-def filter_before_market_open(df):
+def filter_after_market_close(df):
     return df[df["Earnings Call Time"] == "AMC"].copy()
 
 
@@ -96,7 +99,7 @@ def lambda_handler(event, context):
 
     csv_data = download_csv_from_s3(year, month, day)
     df = read_csv(StringIO(csv_data))
-    df_filtered = filter_before_market_open(df)
+    df_filtered = filter_after_market_close(df)
 
     symbols = extract_unique_symbols(df_filtered)
     companies = process_symbols(symbols, df_filtered)
@@ -109,7 +112,7 @@ def lambda_handler(event, context):
             "message": "Success",
             "records_uploaded": len(companies),
             "s3_bucket": S3_BUCKET,
-            "s3_key": build_s3_key(year, month)
+            "s3_key": build_s3_key(year, month, day)
         }
     }
 
