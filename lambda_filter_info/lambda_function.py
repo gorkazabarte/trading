@@ -90,17 +90,8 @@ def get_stock_performance(ticker: str) -> dict:
 
 def get_target_day(event: dict) -> tuple[int, int, int]:
 
-    print("Event received:", event)
-    body = event.get("body", {})
-    print("Body extracted:", body)
-
-    if isinstance(body, str):
-        from json import loads
-        body = loads(body)
-
-    year = body.get("year")
-    month = body.get("month")
-    day = body.get("day")
+    key = event.get("key")
+    year, month, day = key.split("/")
 
     if year and month and day:
         return int(year), int(month), int(day)
