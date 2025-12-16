@@ -95,9 +95,7 @@ def get_target_day(event: dict) -> tuple[int, int, int]:
         from json import loads
         body = loads(body)
 
-    year = body.get("year")
-    month = body.get("month")
-    day = body.get("day")
+    year, month, day, _ = body["key"].split("/")
 
     if year and month and day:
         return int(year), int(month), int(day)
