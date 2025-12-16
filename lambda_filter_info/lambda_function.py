@@ -16,14 +16,21 @@ s3 = client("s3")
 
 
 def build_company_data(symbol: str, symbol_data, performance: dict) -> dict:
+
+    def get_column_value(data, possible_names):
+        for name in possible_names:
+            if name in data:
+                return data.get(name, "")
+        return ""
+
     return {
         "symbol": symbol,
-        "company": symbol_data.get("Company", ""),
-        "event_name": symbol_data.get("Event Name", ""),
-        "earnings_call_time": symbol_data.get("Earnings Call Time", ""),
+        "company": get_column_value(symbol_data, ["Company", "company"]),
+        "event_name": get_column_value(symbol_data, ["Event Name", "event_name", "Event"]),
+        "earnings_call_time": get_column_value(symbol_data, ["Earnings Call Time", "earnings_call_time", "Time"]),
         "current_price": round(performance["current_price"], 4),
         "percentage_change_90d": round(performance["percent_change_90d"], 4),
-        "market_cap": symbol_data.get("Market Cap", "")
+        "market_cap": get_column_value(symbol_data, ["Market Cap", "market_cap", "MarketCap"])
     }
 
 
@@ -48,6 +55,10 @@ def extract_unique_symbols(df) -> list:
 
 
 def filter_after_market_close(df):
+    if "Earnings Call Time" not in df.columns:
+        available_cols = ', '.join(df.columns.tolist())
+        raise ValueError(f"Column 'Earnings Call Time' not found. Available columns: {available_cols}")
+
     return df[df["Earnings Call Time"] == "AMC"].copy()
 
 
@@ -98,7 +109,7 @@ def lambda_handler(event, context):
     year, month, day = get_target_day()
 
     csv_data = download_csv_from_s3(year, month, day)
-    df = read_csv(StringIO(csv_data))
+    df = read_csv(StringIO(csv_data), sep=';')
     df_filtered = filter_after_market_close(df)
 
     symbols = extract_unique_symbols(df_filtered)
