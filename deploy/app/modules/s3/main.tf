@@ -15,6 +15,11 @@ resource "aws_s3_bucket_ownership_controls" "data" {
   }
 }
 
+resource "aws_s3_bucket_notification" "bucket_notification" {
+  bucket      = aws_s3_bucket.data.id
+  eventbridge = true
+}
+
 resource "aws_s3_bucket_public_access_block" "data" {
   block_public_acls       = true
   block_public_policy     = true
@@ -23,7 +28,7 @@ resource "aws_s3_bucket_public_access_block" "data" {
   restrict_public_buckets = true
 }
 
-resource "aws_s3_bucket_versioning" "versioning_example" {
+resource "aws_s3_bucket_versioning" "versioning" {
   bucket = aws_s3_bucket.data.id
   versioning_configuration {
     status = "Enabled"
