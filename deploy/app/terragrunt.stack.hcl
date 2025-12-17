@@ -1,3 +1,8 @@
+unit "api" {
+  source = "./modules/api"
+  path   = "api"
+}
+
 unit "lambda" {
   source = "./modules/lambda"
   path   = "lambda"

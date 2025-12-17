@@ -25,7 +25,7 @@ module "api_gateway" {
   protocol_type = "HTTP"
 
   routes = {
-    "GET /calendar/{year}/{month}" = {
+    "GET /calendar/{year}/{month}/{day}" = {
       integration = {
         uri                    = local.lambda_get_calendar_arn
         payload_format_version = "2.0"
