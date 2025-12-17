@@ -23,11 +23,6 @@ variable "environment" {
   type        = string
 }
 
-variable "s3_bucket_name" {
-  description = "The name of the S3 bucket for Lambda function code storage."
-  type        = string
-}
-
 variable "lambda_get_calendar_arn" {
   description = "ARN of the Lambda function for getting calendar data"
   type        = string

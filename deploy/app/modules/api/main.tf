@@ -7,7 +7,6 @@ locals {
   lambda_get_calendar_arn     = var.lambda_get_calendar_arn
   lambda_select_companies_arn = var.lambda_select_companies_arn
   lambda_update_settings_arn  = var.lambda_update_settings_arn
-  s3_bucket_name              = var.s3_bucket_name
 }
 
 module "api_gateway" {
