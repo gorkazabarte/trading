@@ -66,4 +66,15 @@ resource "aws_cloudwatch_event_target" "filter_info" {
   target_id = "TriggerAWSLambda"
   arn       = local.lambda_filter_info_arn
   role_arn  = aws_iam_role.eventbridge_invoke_lambda.arn
+
+  input_transformer {
+    input_paths = {
+      key = "$.detail.object.key"
+    }
+    input_template = <<EOF
+{
+  "key": <key>
+}
+EOF
+  }
 }
