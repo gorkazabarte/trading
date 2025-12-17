@@ -19,6 +19,9 @@ module "api_gateway" {
     allow_origins = ["*"]
   }
 
+  create_domain_name = false
+  create_domain_records = false
+
   description   = "HTTP API Gateway for ${local.app_name} application in ${local.environment} environment"
   name          = "${local.environment}-${local.app_name}-api"
   protocol_type = "HTTP"
