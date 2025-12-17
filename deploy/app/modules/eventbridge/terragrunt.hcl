@@ -13,7 +13,6 @@ locals {
 
 inputs = {
   lambda_filter_info_arn = dependency.lambda.outputs.lambda_filter_info_arn
-  s3_bucket_name         = dependency.s3.outputs.s3_bucket_name
 }
 
 remote_state {
