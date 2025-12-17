@@ -2,7 +2,6 @@ from datetime import datetime, timezone, timedelta, time
 from json import dumps, loads
 from logging import INFO, Logger
 from os import makedirs, path
-from time import sleep
 from typing import Dict, List, Optional
 
 from boto3 import client
@@ -10,14 +9,61 @@ from boto3 import client
 from ibkr.contract_details import contract_search
 from ibkr.historical_data import get_market_snapshot
 from ibkr.market_data_parser import format_market_data_log, parse_market_data
+from ibkr.order_request import place_market_buy_order, place_market_sell_order
 from logs.setup import setup_logging
 
 MARKET_CLOSE_TIME = time(16, 0)
 MINUTES_BEFORE_CLOSE_TO_SELL = 10
 S3_BUCKET = 'dev-trading-data-storage'
+SETTINGS_FILE_PATH = 'files/settings.json'
 UPDATE_INTERVAL = 0
 
-bought_shares_today: Dict[str, float] = {}
+bought_shares_today: Dict[str, Dict[str, any]] = {}
+
+
+def calculate_budget_per_trade() -> float:
+    """
+    Calculate the budget per trade based on settings.
+    Formula: nextInvestment / opsPerDay
+    Returns 0 if settings cannot be loaded or calculation fails.
+    """
+    try:
+        settings = load_settings()
+        next_investment = settings.get('nextInvestment', 0)
+        ops_per_day = settings.get('opsPerDay', 1)
+
+        if next_investment > 0 and ops_per_day > 0:
+            return next_investment / ops_per_day
+
+        return 0
+    except Exception:
+        return 0
+
+
+def calculate_quantity_from_budget(current_price: float) -> int:
+    """
+    Calculate the number of shares to buy based on the budget per trade.
+    Buys as many shares as possible without exceeding the budget.
+    Returns at least 1 share if budget allows, otherwise 0.
+    """
+    budget = calculate_budget_per_trade()
+
+    if budget <= 0 or current_price <= 0:
+        return 1
+
+    quantity = int(budget / current_price)
+
+    return max(1, quantity)
+
+
+def load_settings() -> Dict:
+    """Load settings from local settings.json file."""
+    try:
+        with open(SETTINGS_FILE_PATH, 'r') as f:
+            return loads(f.read())
+    except Exception:
+        return {}
+
 
 def create_company_data(ticker: str, parsed_data: Dict, closing_price: Optional[str], year: int, month: int, day: int) -> Dict:
     now = datetime.now(timezone.utc)
@@ -187,9 +233,28 @@ def get_existing_closing_price(file_path: str, logger: Logger) -> Optional[str]:
         return None
 
 
-def handle_buy_action(ticker: str, current_price: float, logger: Logger) -> None:
-    bought_shares_today[ticker] = current_price
-    logger.info(f"POSITION OPENED - {ticker}: Bought at ${current_price:.2f}")
+def handle_buy_action(ticker: str, conid: int, current_price: float, logger: Logger) -> None:
+    if ticker in bought_shares_today:
+        return
+
+    quantity = calculate_quantity_from_budget(current_price)
+    estimated_cost = quantity * current_price
+
+    order_result = place_market_buy_order(
+        conid=conid,
+        quantity=quantity
+    )
+
+    if order_result.get("success"):
+        bought_shares_today[ticker] = {
+            "buy_price": current_price,
+            "conid": conid,
+            "quantity": quantity
+        }
+        logger.info(f"BUY SUCCESS - {ticker}: {quantity} share(s) at MARKET (Est: ${estimated_cost:.2f})")
+    else:
+        error_msg = order_result.get('error', 'Order request failed with no error message')
+        logger.error(f"BUY FAILED - {ticker}: {error_msg}")
 
 
 def handle_end_of_day_sales(logger: Logger) -> None:
@@ -233,7 +298,8 @@ def evaluate_and_log_trading_opportunity(ticker: str, parsed_data: Dict, closing
     try:
         current_price = float(parsed_data.get('last_price'))
         close_price_value = float(closing_price)
-        evaluate_trading_opportunity(ticker, current_price, close_price_value, logger)
+        conid = int(parsed_data.get('conid'))
+        evaluate_trading_opportunity(ticker, current_price, close_price_value, conid, logger)
     except (ValueError, TypeError) as e:
         logger.warning(f"{ticker} - Could not evaluate trading opportunity: {e}")
 
@@ -264,7 +330,8 @@ def format_position_without_price(ticker: str, buy_price: float) -> str:
     return f"{ticker} [Buy: ${buy_price:.2f} | Now: N/A]"
 
 
-def format_position_detail(ticker: str, buy_price: float, market_data_by_ticker: Dict[str, Dict]) -> str:
+def format_position_detail(ticker: str, position: Dict[str, any], market_data_by_ticker: Dict[str, Dict]) -> str:
+    buy_price = position.get("buy_price")
     current_price = extract_current_price(ticker, market_data_by_ticker)
 
     if current_price:
@@ -283,8 +350,8 @@ def log_positions_summary(market_data_by_ticker: Dict[str, Dict], logger: Logger
         return
 
     positions_details = [
-        format_position_detail(ticker, buy_price, market_data_by_ticker)
-        for ticker, buy_price in sorted(bought_shares_today.items())
+        format_position_detail(ticker, position, market_data_by_ticker)
+        for ticker, position in sorted(bought_shares_today.items())
     ]
 
     positions_summary = ", ".join(positions_details)
@@ -348,14 +415,26 @@ def save_company_data(file_path: str, company_data: Dict, logger: Logger, ticker
 
 
 def sell_at_market_price(ticker: str, logger: Logger) -> None:
-    buy_price = bought_shares_today.get(ticker)
-    if buy_price:
-        logger.info(f"SELLING AT MARKET CLOSE - {ticker}: Bought at ${buy_price:.2f}")
-    else:
-        logger.info(f"SELLING AT MARKET CLOSE - {ticker}: Closing position before market close")
+    position = bought_shares_today.get(ticker)
 
-    bought_shares_today.pop(ticker, None)
-    logger.info(f"POSITION CLOSED - {ticker}: Removed from tracking")
+    if not position:
+        return
+
+    buy_price = position.get("buy_price")
+    conid = position.get("conid")
+    quantity = position.get("quantity", 1)
+
+    order_result = place_market_sell_order(
+        conid=conid,
+        quantity=quantity
+    )
+
+    if order_result.get("success"):
+        bought_shares_today.pop(ticker, None)
+        logger.info(f"SELL SUCCESS - {ticker}: {quantity} share(s) at MARKET (bought at ${buy_price:.2f})")
+    else:
+        error_msg = order_result.get('error', 'Sell order request failed with no error message')
+        logger.error(f"SELL FAILED - {ticker}: {error_msg}")
 
 
 def should_evaluate_trading_opportunity(parsed_data: Dict, closing_price: Optional[str]) -> bool:
@@ -366,15 +445,17 @@ def should_preserve_existing_closing_price(existing_closing_price: Optional[str]
     return existing_closing_price is not None
 
 
-def evaluate_trading_opportunity(ticker: str, current_price: float, closing_price: float, logger: Logger) -> None:
+def evaluate_trading_opportunity(ticker: str, current_price: float, closing_price: float, conid: int, logger: Logger) -> None:
     price_change_pct = calculate_price_change_percentage(current_price, closing_price)
+
+    handle_buy_action(ticker, conid, current_price, logger)
 
     if is_price_below_close(price_change_pct):
         log_price_below_close(ticker, current_price, closing_price, price_change_pct, logger)
     elif is_price_above_threshold(price_change_pct):
         log_price_too_high(ticker, current_price, closing_price, price_change_pct, logger)
     elif is_within_buy_range(price_change_pct):
-        log_buy_opportunity(ticker, current_price, closing_price, price_change_pct, logger)
+        log_buy_opportunity(ticker, current_price, closing_price, price_change_pct, conid, logger)
     else:
         log_within_range_no_action(ticker, current_price, closing_price, price_change_pct, logger)
 
@@ -401,10 +482,10 @@ def is_within_buy_range(price_change_pct: float) -> bool:
     return 0.8 <= price_change_pct <= 0.95
 
 
-def log_buy_opportunity(ticker: str, current_price: float, closing_price: float, price_change_pct: float, logger: Logger) -> None:
+def log_buy_opportunity(ticker: str, current_price: float, closing_price: float, price_change_pct: float, conid: int, logger: Logger) -> None:
     buy_range = format_buy_range(closing_price)
     logger.info(f"BUY OPPORTUNITY - {ticker}: Current ${current_price:.2f} | Close ${closing_price:.2f} {buy_range} | Change +{price_change_pct:.2f}% | Action: READY TO BUY")
-    handle_buy_action(ticker, current_price, logger)
+    handle_buy_action(ticker, conid, current_price, logger)
 
 
 def log_price_below_close(ticker: str, current_price: float, closing_price: float, price_change_pct: float, logger: Logger) -> None:
