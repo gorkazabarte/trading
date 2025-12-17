@@ -91,7 +91,7 @@ def get_stock_performance(ticker: str) -> dict:
 def get_target_day(event: dict) -> tuple[int, int, int]:
 
     key = event.get("key")
-    year, month, day = key.split("/")
+    year, month, day, _ = key.split("/")
 
     if year and month and day:
         return int(year), int(month), int(day)
