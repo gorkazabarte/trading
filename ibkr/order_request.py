@@ -33,7 +33,7 @@ MAX_CONFIRMATION_ROUNDS = 5
 MESSAGE_KEY = "message"
 ORDER_ID_KEY = "orderId"
 ORDER_TYPE_LIMIT = "LIMIT"
-ORDER_TYPE_MARKET = "MARKET"
+ORDER_TYPE_MARKET = "MKT"
 TIME_IN_FORCE_DAY = "DAY"
 
 
@@ -173,10 +173,27 @@ def is_order_placed(response_data: Any) -> bool:
     return ORDER_ID_KEY in first_item
 
 
-def confirm_order(reply_id: str) -> Any:
-    endpoint = f"{REPLY_ENDPOINT_PREFIX}/{reply_id}"
-    confirmation_body = {"confirmed": True}  # Python True converts to JSON true
-    response = post(url=build_url(endpoint), json=confirmation_body, verify=False)
+def is_insufficient_funds_error(response_data: Any) -> bool:
+    if isinstance(response_data, dict) and ERROR_KEY in response_data:
+        error_msg = response_data[ERROR_KEY].lower()
+        return "available" in error_msg and "cash needed" in error_msg
+    return False
+
+
+def extract_funds_error_message(response_data: Any) -> str:
+    if isinstance(response_data, dict) and ERROR_KEY in response_data:
+        return response_data[ERROR_KEY]
+    return "Insufficient funds"
+
+
+def send_confirmation(reply_id: str) -> Any:
+    url = build_url(f"{REPLY_ENDPOINT_PREFIX}/{reply_id}")
+
+    confirmation_body = {"confirmed": True}
+    response = post(url=url, json=confirmation_body, verify=False)
+
+    if not is_successful_response(response):
+        response = post(url=url, verify=False)
 
     if not is_successful_response(response):
         return []
@@ -188,12 +205,49 @@ def confirm_order(reply_id: str) -> Any:
         return []
 
 
+def confirm_order(initial_response: Any) -> tuple[bool, Optional[str]]:
+    """
+    Handle all confirmation rounds for an order.
+    Returns (True, None) if order was successfully placed.
+    Returns (False, error_message) if confirmation failed with error message.
+    """
+    order_json = initial_response
+    confirmation_round = 0
+
+    # Check for insufficient funds error immediately
+    if is_insufficient_funds_error(order_json):
+        return False, extract_funds_error_message(order_json)
+
+    while confirmation_round < MAX_CONFIRMATION_ROUNDS:
+        if is_order_placed(order_json):
+            return True, None
+
+        if is_confirmation_required(order_json):
+            reply_id = order_json[0][ID_KEY]
+            order_json = send_confirmation(reply_id)
+            confirmation_round += 1
+
+            if not order_json or len(order_json) == 0:
+                return False, f"Empty response after confirmation round {confirmation_round}"
+
+            # Check for insufficient funds error after each confirmation
+            if is_insufficient_funds_error(order_json):
+                return False, extract_funds_error_message(order_json)
+        else:
+            break
+
+    if is_order_placed(order_json):
+        return True, None
+
+    return False, "Order not placed after all confirmation rounds"
+
+
 def order_request(account_id: str, action: str, conid: int, quantity: int, order_type: str, price: Optional[float]) -> Dict[str, Any]:
     try:
-        endpoint = build_order_endpoint(account_id)
+        url = build_url(build_order_endpoint(account_id))
         payload = build_order_payload(conid, order_type, action, quantity, price)
 
-        response = post(url=build_url(endpoint), json=payload, verify=False)
+        response = post(url=url, json=payload, verify=False)
 
         if not is_successful_response(response):
             return handle_http_error(response.status_code, response.text)
@@ -203,43 +257,12 @@ def order_request(account_id: str, action: str, conid: int, quantity: int, order
         except Exception as json_error:
             return handle_json_parse_error(json_error, response.text, response.status_code)
 
-        confirmation_round = 0
-        responses_history = [order_json]
+        success, error_message = confirm_order(order_json)
 
-        while confirmation_round < MAX_CONFIRMATION_ROUNDS:
-            if is_order_placed(order_json):
-                return create_success_response(
-                    initial_response=order_json,
-                    confirmation_response=order_json,
-                    confirmation_rounds=confirmation_round,
-                    responses_history=responses_history
-                )
+        if success:
+            return create_success_response(initial_response=order_json)
 
-            if is_confirmation_required(order_json):
-                reply_id = order_json[0][ID_KEY]
-                order_json = confirm_order(reply_id)
-                confirmation_round += 1
-
-                if order_json and len(order_json) > 0:
-                    responses_history.append(order_json)
-                else:
-                    return create_error_response(
-                        f"Empty response after confirmation round {confirmation_round}. History: {responses_history}"
-                    )
-            else:
-                break
-
-        if is_order_placed(order_json):
-            return create_success_response(
-                initial_response=order_json,
-                confirmation_response=order_json,
-                confirmation_rounds=confirmation_round,
-                responses_history=responses_history
-            )
-
-        return create_error_response(
-            f"Order not placed after {confirmation_round} confirmation rounds. History: {responses_history}"
-        )
+        return create_error_response(error_message if error_message else "Order confirmation failed")
 
     except Exception as e:
         return create_error_response(f"Exception: {str(e)}")

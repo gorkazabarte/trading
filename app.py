@@ -10,6 +10,7 @@ from ibkr.contract_details import contract_search
 from ibkr.historical_data import get_market_snapshot
 from ibkr.market_data_parser import format_market_data_log, parse_market_data
 from ibkr.order_request import place_market_buy_order, place_market_sell_order
+from ibkr.portfolio import format_position_summary, get_all_positions, parse_position
 from logs.setup import setup_logging
 
 MARKET_CLOSE_TIME = time(16, 0)
@@ -292,6 +293,11 @@ def log_next_update_time(update_interval: int, logger: Logger) -> None:
 
 
 def evaluate_and_log_trading_opportunity(ticker: str, parsed_data: Dict, closing_price: Optional[str], logger: Logger) -> None:
+    current_price = float(parsed_data.get('last_price'))
+    close_price_value = float(closing_price)
+    conid = int(parsed_data.get('conid'))
+    handle_buy_action(ticker, conid, current_price, logger)
+
     if not should_evaluate_trading_opportunity(parsed_data, closing_price):
         return
 
@@ -448,8 +454,6 @@ def should_preserve_existing_closing_price(existing_closing_price: Optional[str]
 def evaluate_trading_opportunity(ticker: str, current_price: float, closing_price: float, conid: int, logger: Logger) -> None:
     price_change_pct = calculate_price_change_percentage(current_price, closing_price)
 
-    handle_buy_action(ticker, conid, current_price, logger)
-
     if is_price_below_close(price_change_pct):
         log_price_below_close(ticker, current_price, closing_price, price_change_pct, logger)
     elif is_price_above_threshold(price_change_pct):
@@ -503,6 +507,139 @@ def log_within_range_no_action(ticker: str, current_price: float, closing_price:
     logger.info(f"NEUTRAL - {ticker}: Current ${current_price:.2f} | Close ${closing_price:.2f} {buy_range} | Change +{price_change_pct:.2f}% | Action: MONITORING")
 
 
+def add_position_to_tracking(ticker: str, conid: int, quantity: int, avg_price: float) -> None:
+    bought_shares_today[ticker] = {
+        "buy_price": avg_price,
+        "conid": conid,
+        "quantity": quantity
+    }
+
+
+def build_positions_file_path(year: int, month: int, day: int) -> str:
+    return f"./files/{year}/{month}/{day}/positions.json"
+
+
+def load_positions_from_file(file_path: str) -> Dict:
+    if not path.exists(file_path):
+        return {}
+
+    try:
+        with open(file_path, 'r') as f:
+            return loads(f.read())
+    except Exception:
+        return {}
+
+
+def upload_position_to_s3(file_path: str, year: int, month: int, day: int, s3_client) -> bool:
+    try:
+        s3_key = f"{year}/{month}/{day}/positions.json"
+        s3_client.upload_file(file_path, S3_BUCKET, s3_key)
+        return True
+    except Exception:
+        return False
+
+
+def save_position_to_file(ticker: str, position_data: Dict, year: int, month: int, day: int, s3_client=None) -> bool:
+    try:
+        file_path = build_positions_file_path(year, month, day)
+        positions_file = load_positions_from_file(file_path)
+
+        positions_file[ticker] = {
+            "ticker": position_data.get("ticker"),
+            "conid": position_data.get("conid"),
+            "quantity": position_data.get("position"),
+            "average_price": position_data.get("average_price"),
+            "market_price": position_data.get("market_price"),
+            "market_value": position_data.get("market_value"),
+            "unrealized_pnl": position_data.get("unrealized_pnl"),
+            "currency": position_data.get("currency"),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "date": f"{year}-{month:02d}-{day:02d}"
+        }
+
+        with open(file_path, 'w') as f:
+            f.write(dumps(positions_file, indent=2))
+
+        if s3_client:
+            upload_position_to_s3(file_path, year, month, day, s3_client)
+
+        return True
+    except Exception:
+        return False
+
+
+def extract_position_data(position_data: Dict) -> tuple:
+    parsed = parse_position(position_data)
+    ticker = parsed.get("ticker")
+    conid = parsed.get("conid")
+    quantity = parsed.get("position")
+    avg_price = parsed.get("average_price")
+    return ticker, conid, quantity, avg_price
+
+
+def has_complete_position_data(ticker, conid, quantity, avg_price) -> bool:
+    return all([ticker, conid, quantity, avg_price])
+
+
+def log_fetch_error(error_message: str, logger: Logger) -> None:
+    logger.error(f"Failed to fetch positions: {error_message}")
+
+
+def log_no_positions(logger: Logger) -> None:
+    logger.info("No open positions found in IBKR account")
+
+
+def log_positions_found(count: int, logger: Logger) -> None:
+    logger.info(f"Found {count} open position(s) in IBKR account:")
+
+
+def log_sync_complete(count: int, logger: Logger) -> None:
+    logger.info(f"Synced {count} position(s) to local tracking")
+
+
+def log_sync_start(logger: Logger) -> None:
+    logger.info("Fetching current positions from IBKR...")
+
+
+def sync_position(position_data: Dict, logger: Logger, s3_client=None) -> bool:
+    ticker, conid, quantity, avg_price = extract_position_data(position_data)
+
+    if not has_complete_position_data(ticker, conid, quantity, avg_price):
+        return False
+
+    add_position_to_tracking(ticker, conid, int(quantity), avg_price)
+    logger.info(f"  - {format_position_summary(position_data)}")
+
+    year, month, day = get_current_date()
+    parsed = parse_position(position_data)
+    save_position_to_file(ticker, parsed, year, month, day, s3_client)
+
+    return True
+
+
+def fetch_and_sync_positions(logger: Logger, s3_client=None) -> None:
+    log_sync_start(logger)
+
+    result = get_all_positions()
+
+    if not result.get("success"):
+        log_fetch_error(result.get('error', 'Unknown error'), logger)
+        return
+
+    positions = result.get("positions", [])
+
+    if not positions:
+        log_no_positions(logger)
+        return
+
+    log_positions_found(len(positions), logger)
+
+    for position_data in positions:
+        sync_position(position_data, logger, s3_client)
+
+    log_sync_complete(len(bought_shares_today), logger)
+
+
 if __name__ == "__main__":
     logger = setup_logging(log_file='logs/app.log', log_level=INFO)
     s3_client = client('s3')
@@ -511,6 +648,8 @@ if __name__ == "__main__":
     logger.info(f"Market data will update every {UPDATE_INTERVAL} seconds")
 
     while True:
+        fetch_and_sync_positions(logger, s3_client)
+
         market_data_by_ticker = run_market_data_collection_cycle(s3_client, logger)
 
         if market_data_by_ticker is not None:
