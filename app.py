@@ -530,9 +530,9 @@ def load_positions_from_file(file_path: str) -> Dict:
         return {}
 
 
-def upload_position_to_s3(file_path: str, year: int, month: int, day: int, s3_client) -> bool:
+def upload_position_to_s3(file_path: str, s3_client) -> bool:
     try:
-        s3_key = f"{year}/{month}/{day}/positions.json"
+        s3_key = "positions.json"
         s3_client.upload_file(file_path, S3_BUCKET, s3_key)
         return True
     except Exception:
@@ -561,7 +561,7 @@ def save_position_to_file(ticker: str, position_data: Dict, year: int, month: in
             f.write(dumps(positions_file, indent=2))
 
         if s3_client:
-            upload_position_to_s3(file_path, year, month, day, s3_client)
+            upload_position_to_s3(file_path, s3_client)
 
         return True
     except Exception:

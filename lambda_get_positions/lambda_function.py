@@ -8,10 +8,10 @@ from botocore.exceptions import ClientError
 s3_client = boto3.client('s3')
 
 S3_BUCKET = os.environ.get('S3_BUCKET', 'dev-trading-data-storage')
+S3_KEY = os.environ.get('S3_KEY', 'positions.json')
 
-
-def build_s3_key(year: str, month: str, day: str) -> str:
-    return f"{year}/{month}/{day}/positions.json"
+def build_s3_key() -> str:
+    return "positions.json"
 
 
 def create_error_response(status_code: int, message: str) -> Dict[str, Any]:
