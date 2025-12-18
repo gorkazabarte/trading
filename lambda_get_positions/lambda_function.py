@@ -8,10 +8,7 @@ from botocore.exceptions import ClientError
 s3_client = boto3.client('s3')
 
 S3_BUCKET = os.environ.get('S3_BUCKET', 'dev-trading-data-storage')
-S3_KEY = os.environ.get('S3_KEY', 'positions.json')
-
-def build_s3_key() -> str:
-    return "positions.json"
+S3_KEY = 'positions.json'
 
 
 def create_error_response(status_code: int, message: str) -> Dict[str, Any]:
@@ -36,55 +33,33 @@ def create_success_response(data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def extract_date_from_body(event: Dict[str, Any]) -> tuple:
+def fetch_positions_from_s3() -> Dict[str, Any]:
     try:
-        body = json.loads(event.get('body', '{}'))
-        year = body.get('year')
-        month = body.get('month')
-        day = body.get('day')
-
-        if not all([year, month, day]):
-            return None, None, None
-
-        return str(year), str(month), str(day)
-    except json.JSONDecodeError:
-        return None, None, None
-
-
-def fetch_positions_from_s3(s3_key: str) -> Dict[str, Any]:
-    try:
-        response = s3_client.get_object(Bucket=S3_BUCKET, Key=s3_key)
+        response = s3_client.get_object(Bucket=S3_BUCKET, Key=S3_KEY)
         content = response['Body'].read().decode('utf-8')
         return json.loads(content)
     except ClientError as e:
         error_code = e.response['Error']['Code']
         if error_code == 'NoSuchKey':
-            raise FileNotFoundError(f"No positions file found for the specified date")
+            raise FileNotFoundError("No positions file found")
         raise Exception(f"S3 error: {str(e)}")
 
 
-def format_positions_response(positions: Dict[str, Any], year: str, month: str, day: str) -> Dict[str, Any]:
+def format_positions_response(positions: Dict[str, Any]) -> Dict[str, Any]:
     return {
-        'date': f"{year}-{month.zfill(2)}-{day.zfill(2)}",
         'count': len(positions),
         'positions': positions
     }
 
 
 def lambda_handler(event, context):
-    year, month, day = extract_date_from_body(event)
-
-    if not all([year, month, day]):
-        return create_error_response(400, 'Missing required fields: year, month, day')
-
-    s3_key = build_s3_key(year, month, day)
-
     try:
-        positions = fetch_positions_from_s3(s3_key)
-        response_data = format_positions_response(positions, year, month, day)
+        positions = fetch_positions_from_s3()
+        response_data = format_positions_response(positions)
         return create_success_response(response_data)
     except FileNotFoundError as e:
         return create_error_response(404, str(e))
     except Exception as e:
         return create_error_response(500, f"Internal server error: {str(e)}")
+
 
