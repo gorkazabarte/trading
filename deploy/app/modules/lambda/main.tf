@@ -74,6 +74,74 @@ resource "aws_iam_policy" "lambda_policy_filter_info" {
   })
 }
 
+resource "aws_iam_policy" "lambda_policy_get_positions" {
+  name        = "${local.environment}-${local.app_name}-get-positions"
+  description = "Return open positions response to API Gateway"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["s3:GetObject"]
+        Resource = "arn:aws:s3:::${local.aws_s3_bucket}/*"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["s3:ListBucket"]
+        Resource = "arn:aws:s3:::${local.aws_s3_bucket}"
+      }
+    ]
+  })
+}
+
+module "lambda_function_get_positions" {
+  source         = "terraform-aws-modules/lambda/aws"
+  attach_policy  = true
+  create_package = false
+  description    = "Return open position response to API Gateway"
+  environment_variables = {
+    S3_BUCKET = "${local.aws_s3_bucket}"
+  }
+  function_name  = "${local.environment}-${local.app_name}-get-positions"
+  image_uri      = "${local.aws_account_id}.dkr.ecr.${local.aws_region}.amazonaws.com/${local.environment}-${local.app_name}-get-positions:${local.app_version}"
+  memory_size	 = 256
+  timeout        = 180
+  package_type   = "Image"
+  policy         = aws_iam_policy.lambda_policy_get_positions.arn
+  version        = "8.1.2"
+}
+
+resource "aws_lambda_permission" "api_gateway_invoke_get_positions" {
+  statement_id  = "AllowAPIGatewayGetPositionsInvoke"
+  action        = "lambda:InvokeFunction"
+  function_name = module.lambda_function_get_positions.lambda_function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "arn:aws:execute-api:${local.aws_region}:${local.aws_account_id}:*/*"
+}
+
+
+resource "aws_iam_policy" "lambda_policy_filter_info" {
+  name        = "${local.environment}-${local.app_name}-filter-info"
+  description = "Filter companies based on criteria and store in S3"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["s3:GetObject", "s3:PutObject"]
+        Resource = "arn:aws:s3:::${local.aws_s3_bucket}/*"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["s3:ListBucket"]
+        Resource = "arn:aws:s3:::${local.aws_s3_bucket}"
+      }
+    ]
+  })
+}
+
 module "lambda_function_filter_info" {
   source         = "terraform-aws-modules/lambda/aws"
   attach_policy  = true
@@ -184,45 +252,3 @@ module "lambda_function_update_settings" {
   policy         = aws_iam_policy.lambda_policy_update_settings.arn
   version        = "8.1.2"
 }
-
-resource "aws_iam_policy" "lambda_policy_get_positions" {
-  name        = "${local.environment}-${local.app_name}-get-positions"
-  description = "Allow Lambda to read positions from S3"
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "s3:GetObject"
-        ]
-        Resource = "arn:aws:s3:::${local.environment}-trading-data-storage/*"
-      }
-    ]
-  })
-}
-
-module "lambda_function_get_positions" {
-  source  = "terraform-aws-modules/lambda/aws"
-
-  environment_variables = {
-    S3_BUCKET = "${local.environment}-trading-data-storage"
-  }
-  function_name  = "${local.environment}-${local.app_name}-get-positions"
-  image_uri      = "${local.aws_account_id}.dkr.ecr.${local.aws_region}.amazonaws.com/${local.environment}-${local.app_name}-get-positions:${local.app_version}"
-  memory_size	 = 256
-  timeout        = 30
-  package_type   = "Image"
-  policy         = aws_iam_policy.lambda_policy_get_positions.arn
-  version        = "8.1.2"
-}
-
-resource "aws_lambda_permission" "api_gateway_invoke_get_positions" {
-  statement_id  = "AllowAPIGatewayGetPositionsInvoke"
-  action        = "lambda:InvokeFunction"
-  function_name = module.lambda_function_get_positions.lambda_function_name
-  principal     = "apigateway.amazonaws.com"
-  source_arn    = "arn:aws:execute-api:${local.aws_region}:${local.aws_account_id}:*/*"
-}
-
