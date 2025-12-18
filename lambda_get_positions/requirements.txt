@@ -1,3 +1,5 @@
-boto3==1.26.137
-botocore==1.29.137
-
+aws-lambda-powertools==3.22.1
+awslambdaric==3.1.1
+botocore==1.40.72
+boto3==1.40.72
+requests==2.32.5
