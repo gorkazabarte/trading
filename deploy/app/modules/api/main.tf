@@ -44,7 +44,7 @@ module "api_gateway" {
       }
     }
 
-    "POST /positions" = {
+    "GET /positions" = {
       integration = {
         uri                    = local.lambda_get_positions_arn
         payload_format_version = "2.0"
