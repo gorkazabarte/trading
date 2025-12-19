@@ -20,6 +20,7 @@ SETTINGS_FILE_PATH = 'files/settings.json'
 UPDATE_INTERVAL = 0
 
 bought_shares_today: Dict[str, Dict[str, any]] = {}
+closed_positions_today: List[Dict[str, any]] = []
 
 
 def calculate_budget_per_trade() -> float:
@@ -221,6 +222,11 @@ def get_current_date() -> tuple[int, int, int]:
     return now.year, now.month, now.day
 
 
+def get_current_date_string() -> str:
+    year, month, day = get_current_date()
+    return f"{year}-{month:02d}-{day:02d}"
+
+
 def get_existing_closing_price(file_path: str, logger: Logger) -> Optional[str]:
     if not path.exists(file_path):
         return None
@@ -247,12 +253,29 @@ def handle_buy_action(ticker: str, conid: int, current_price: float, logger: Log
     )
 
     if order_result.get("success"):
+        buy_date = get_current_date_string()
         bought_shares_today[ticker] = {
             "buy_price": current_price,
+            "buy_date": buy_date,
             "conid": conid,
             "quantity": quantity
         }
         logger.info(f"BUY SUCCESS - {ticker}: {quantity} share(s) at MARKET (Est: ${estimated_cost:.2f})")
+
+        year, month, day = get_current_date()
+        position_data = {
+            "ticker": ticker,
+            "conid": conid,
+            "position": quantity,
+            "average_price": current_price,
+            "market_price": current_price,
+            "market_value": current_price * quantity,
+            "unrealized_pnl": 0.0,
+            "currency": "USD"
+        }
+        s3_client = client('s3')
+        save_position_to_file(ticker, position_data, year, month, day, s3_client)
+        logger.info(f"{ticker} - Position saved to open_positions.json")
     else:
         error_msg = order_result.get('error', 'Order request failed with no error message')
         logger.error(f"BUY FAILED - {ticker}: {error_msg}")
@@ -415,13 +438,14 @@ def save_company_data(file_path: str, company_data: Dict, logger: Logger, ticker
         return False
 
 
-def sell_at_market_price(ticker: str, logger: Logger) -> None:
+def sell_at_market_price(ticker: str, logger: Logger, current_price: Optional[float] = None) -> None:
     position = bought_shares_today.get(ticker)
 
     if not position:
         return
 
     buy_price = position.get("buy_price")
+    buy_date = position.get("buy_date", get_current_date_string())
     conid = position.get("conid")
     quantity = position.get("quantity", 1)
 
@@ -431,8 +455,19 @@ def sell_at_market_price(ticker: str, logger: Logger) -> None:
     )
 
     if order_result.get("success"):
+        sell_price = current_price if current_price else buy_price
+
+        closed_position = create_closed_position_entry(
+            ticker=ticker,
+            buy_date=buy_date,
+            buy_price=buy_price,
+            sell_price=sell_price,
+            quantity=quantity
+        )
+        closed_positions_today.append(closed_position)
+
         bought_shares_today.pop(ticker, None)
-        logger.info(f"SELL SUCCESS - {ticker}: {quantity} share(s) at MARKET (bought at ${buy_price:.2f})")
+        logger.info(f"SELL SUCCESS - {ticker}: {quantity} share(s) at MARKET (bought at ${buy_price:.2f}) | P/L: ${closed_position['profit']:.2f} ({closed_position['return_pct']:.2f}%)")
     else:
         error_msg = order_result.get('error', 'Sell order request failed with no error message')
         logger.error(f"SELL FAILED - {ticker}: {error_msg}")
@@ -502,16 +537,36 @@ def log_within_range_no_action(ticker: str, current_price: float, closing_price:
     logger.info(f"NEUTRAL - {ticker}: Current ${current_price:.2f} | Close ${closing_price:.2f} {buy_range} | Change +{price_change_pct:.2f}% | Action: MONITORING")
 
 
-def add_position_to_tracking(ticker: str, conid: int, quantity: int, avg_price: float) -> None:
+def add_position_to_tracking(ticker: str, conid: int, quantity: int, avg_price: float, buy_date: str) -> None:
     bought_shares_today[ticker] = {
         "buy_price": avg_price,
+        "buy_date": buy_date,
         "conid": conid,
         "quantity": quantity
     }
 
 
 def build_positions_file_path(year: int, month: int, day: int) -> str:
-    return f"./files/{year}/{month}/{day}/positions.json"
+    return f"./files/{year}/{month}/{day}/open_positions.json"
+
+
+def build_closed_positions_file_path(year: int, month: int, day: int) -> str:
+    return f"./files/{year}/{month}/{day}/closed_positions.json"
+
+
+def create_closed_position_entry(ticker: str, buy_date: str, buy_price: float, sell_price: float, quantity: int) -> Dict:
+    profit = (sell_price - buy_price) * quantity
+    return_pct = ((sell_price - buy_price) / buy_price) * 100
+
+    return {
+        "symbol": ticker,
+        "buy_date": buy_date,
+        "buy_price": round(buy_price, 2),
+        "sell_price": round(sell_price, 2),
+        "quantity": quantity,
+        "profit": round(profit, 2),
+        "return_pct": round(return_pct, 2)
+    }
 
 
 def load_positions_from_file(file_path: str) -> Dict:
@@ -527,10 +582,54 @@ def load_positions_from_file(file_path: str) -> Dict:
 
 def upload_position_to_s3(file_path: str, s3_client) -> bool:
     try:
-        s3_key = "positions.json"
+        s3_key = "open_positions.json"
         s3_client.upload_file(file_path, S3_BUCKET, s3_key)
         return True
     except Exception:
+        return False
+
+
+def upload_closed_positions_to_s3(file_path: str, year: int, month: int, day: int, s3_client) -> bool:
+    try:
+        s3_key = f"{year}/{month}/{day}/closed_positions.json"
+        s3_client.upload_file(file_path, S3_BUCKET, s3_key)
+        return True
+    except Exception:
+        return False
+
+
+def save_closed_positions_to_file(year: int, month: int, day: int, s3_client=None, logger: Logger = None) -> bool:
+    if len(closed_positions_today) == 0:
+        if logger:
+            logger.info("No closed positions to save today")
+        return True
+
+    try:
+        file_path = build_closed_positions_file_path(year, month, day)
+
+        closed_positions_data = {
+            "date": f"{year}-{month:02d}-{day:02d}",
+            "total_positions": len(closed_positions_today),
+            "total_profit": round(sum(p["profit"] for p in closed_positions_today), 2),
+            "positions": closed_positions_today
+        }
+
+        with open(file_path, 'w') as f:
+            f.write(dumps(closed_positions_data, indent=2))
+
+        if logger:
+            logger.info(f"Saved {len(closed_positions_today)} closed position(s) to: {file_path}")
+            logger.info(f"Total P/L for the day: ${closed_positions_data['total_profit']:.2f}")
+
+        if s3_client:
+            upload_closed_positions_to_s3(file_path, year, month, day, s3_client)
+            if logger:
+                logger.info(f"Closed positions uploaded to S3: s3://{S3_BUCKET}/{year}/{month}/{day}/closed_positions.json")
+
+        return True
+    except Exception as e:
+        if logger:
+            logger.error(f"Failed to save closed positions: {e}")
         return False
 
 
@@ -602,7 +701,8 @@ def sync_position(position_data: Dict, logger: Logger, s3_client=None) -> bool:
     if not has_complete_position_data(ticker, conid, quantity, avg_price):
         return False
 
-    add_position_to_tracking(ticker, conid, int(quantity), avg_price)
+    buy_date = get_current_date_string()
+    add_position_to_tracking(ticker, conid, int(quantity), avg_price, buy_date)
     logger.info(f"  - {format_position_summary(position_data)}")
 
     year, month, day = get_current_date()
@@ -649,4 +749,9 @@ if __name__ == "__main__":
 
         if market_data_by_ticker is not None:
             handle_end_of_day_sales(logger)
+
+            if is_close_to_market_close() and len(closed_positions_today) > 0:
+                year, month, day = get_current_date()
+                save_closed_positions_to_file(year, month, day, s3_client, logger)
+
             log_positions_summary(market_data_by_ticker, logger)

@@ -8,7 +8,7 @@ from botocore.exceptions import ClientError
 s3_client = boto3.client('s3')
 
 S3_BUCKET = os.environ.get('S3_BUCKET', 'dev-trading-data-storage')
-S3_KEY = 'positions.json'
+S3_KEY = 'open_positions.json'
 
 
 def create_error_response(status_code: int, message: str) -> Dict[str, Any]:
