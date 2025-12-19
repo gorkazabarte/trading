@@ -293,11 +293,6 @@ def log_next_update_time(update_interval: int, logger: Logger) -> None:
 
 
 def evaluate_and_log_trading_opportunity(ticker: str, parsed_data: Dict, closing_price: Optional[str], logger: Logger) -> None:
-    current_price = float(parsed_data.get('last_price'))
-    close_price_value = float(closing_price)
-    conid = int(parsed_data.get('conid'))
-    handle_buy_action(ticker, conid, current_price, logger)
-
     if not should_evaluate_trading_opportunity(parsed_data, closing_price):
         return
 

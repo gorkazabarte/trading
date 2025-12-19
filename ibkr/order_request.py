@@ -32,8 +32,11 @@ ACTION_SELL = "SELL"
 MAX_CONFIRMATION_ROUNDS = 5
 MESSAGE_KEY = "message"
 ORDER_ID_KEY = "orderId"
+ORDER_STATUS_KEY = "order_status"
 ORDER_TYPE_LIMIT = "LIMIT"
 ORDER_TYPE_MARKET = "MKT"
+STATUS_PRESUBMITTED = "PreSubmitted"
+STATUS_SUBMITTED = "Submitted"
 TIME_IN_FORCE_DAY = "DAY"
 
 
@@ -170,7 +173,16 @@ def is_order_placed(response_data: Any) -> bool:
         return False
 
     first_item = response_data[0]
-    return ORDER_ID_KEY in first_item
+
+    if ORDER_ID_KEY in first_item:
+        return True
+
+    if ORDER_STATUS_KEY in first_item:
+        status = first_item[ORDER_STATUS_KEY]
+        if status in [STATUS_PRESUBMITTED, STATUS_SUBMITTED]:
+            return True
+
+    return False
 
 
 def is_insufficient_funds_error(response_data: Any) -> bool:
@@ -214,7 +226,6 @@ def confirm_order(initial_response: Any) -> tuple[bool, Optional[str]]:
     order_json = initial_response
     confirmation_round = 0
 
-    # Check for insufficient funds error immediately
     if is_insufficient_funds_error(order_json):
         return False, extract_funds_error_message(order_json)
 
@@ -230,7 +241,6 @@ def confirm_order(initial_response: Any) -> tuple[bool, Optional[str]]:
             if not order_json or len(order_json) == 0:
                 return False, f"Empty response after confirmation round {confirmation_round}"
 
-            # Check for insufficient funds error after each confirmation
             if is_insufficient_funds_error(order_json):
                 return False, extract_funds_error_message(order_json)
         else:
