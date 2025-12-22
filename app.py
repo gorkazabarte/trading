@@ -206,6 +206,10 @@ def download_companies_list(s3_client, bucket: str, year: int, month: int, day: 
 
     try:
         file_path = f'./files/{year}/{month}/{day}/selected_companies.txt'
+
+        # Create directory if it doesn't exist
+        makedirs(path.dirname(file_path), exist_ok=True)
+
         s3_key = f'{year}/{month}/{day}/selected_companies.txt'
         s3_client.download_file(bucket, s3_key, file_path)
         with open(file_path, 'r') as f:
@@ -227,6 +231,9 @@ def download_settings_file(s3_client, bucket: str, logger: Logger) -> Optional[D
         return cached_settings
 
     try:
+        # Create directory if it doesn't exist
+        makedirs('./files', exist_ok=True)
+
         s3_client.download_file(bucket, 'settings.json', './files/settings.json')
         with open('./files/settings.json', 'r') as f:
             cached_settings = loads(f.read())
@@ -812,13 +819,11 @@ def fetch_and_sync_positions(logger: Logger, s3_client=None) -> None:
 if __name__ == "__main__":
     logger = setup_logging(log_file='logs/app.log', log_level=INFO)
 
-    # Assume IAM role for S3 access
     s3_client = assume_iam_role(IAM_ROLE_NAME, logger)
 
     logger.info("Trading application has started successfully.")
     logger.info(f"Market data will update every {UPDATE_INTERVAL} seconds")
 
-    # Download daily files once at startup
     year, month, day = get_current_date()
     settings, companies = download_daily_files(s3_client, S3_BUCKET, year, month, day, logger)
 

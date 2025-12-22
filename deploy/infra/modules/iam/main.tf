@@ -3,6 +3,8 @@ locals {
   environment = var.environment
 }
 
+data "aws_caller_identity" "main" {}
+
 resource "aws_iam_role" "admin" {
   name = "${local.environment}-${local.app_name}-admin"
 
@@ -19,7 +21,7 @@ resource "aws_iam_role" "admin" {
       {
         Effect = "Allow"
         Principal = {
-          AWS = data.aws_caller_identity.main.account_id
+          AWS = "arn:aws:iam::${data.aws_caller_identity.main.account_id}:root"
         }
         Action = "sts:AssumeRole"
       }
@@ -37,6 +39,3 @@ resource "aws_iam_role_policy_attachment" "admin_policy" {
   role       = aws_iam_role.admin.name
   policy_arn = "arn:aws:iam::aws:policy/AdministratorAccess"
 }
-
-data "aws_caller_identity" "main" {}
-
