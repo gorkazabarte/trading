@@ -4,7 +4,7 @@ include "root" {
 
 locals {
   root_config   = read_terragrunt_config(find_in_parent_folders("root.hcl"))
-  s3_bucket_key = "${local.root_config.locals.app_name}/infra/${local.root_config.locals.environment}/ecr/terraform.tfstate"
+  s3_bucket_key = "${local.root_config.locals.app_name}/infra/${local.root_config.locals.environment}/iam/terraform.tfstate"
 }
 
 remote_state {
