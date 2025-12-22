@@ -18,17 +18,48 @@ MINUTES_BEFORE_CLOSE_TO_SELL = 10
 S3_BUCKET = 'dev-trading-data-storage'
 SETTINGS_FILE_PATH = 'files/settings.json'
 UPDATE_INTERVAL = 0
+IAM_ROLE_NAME = 'dev-trading-admin'
 
 bought_shares_today: Dict[str, Dict[str, any]] = {}
 closed_positions_today: List[Dict[str, any]] = []
+daily_files_downloaded: bool = False
+cached_settings: Optional[Dict] = None
+cached_companies: Optional[List[str]] = None
+
+
+def assume_iam_role(role_name: str, logger: Logger):
+    try:
+        sts_client = client('sts')
+        caller_identity = sts_client.get_caller_identity()
+        account_id = caller_identity['Account']
+        role_arn = f"arn:aws:iam::{account_id}:role/{role_name}"
+
+        logger.info(f"Assuming IAM role: {role_arn}")
+
+        response = sts_client.assume_role(
+            RoleArn=role_arn,
+            RoleSessionName='trading-app-session'
+        )
+
+        credentials = response['Credentials']
+
+        s3_client = client(
+            's3',
+            aws_access_key_id=credentials['AccessKeyId'],
+            aws_secret_access_key=credentials['SecretAccessKey'],
+            aws_session_token=credentials['SessionToken']
+        )
+
+        logger.info(f"Successfully assumed role: {role_name}")
+        return s3_client
+
+    except Exception as e:
+        logger.error(f"Failed to assume IAM role {role_name}: {e}")
+        logger.info("Falling back to default credentials")
+        return client('s3')
 
 
 def calculate_budget_per_trade() -> float:
-    """
-    Calculate the budget per trade based on settings.
-    Formula: nextInvestment / opsPerDay
-    Returns 0 if settings cannot be loaded or calculation fails.
-    """
     try:
         settings = load_settings()
         next_investment = settings.get('nextInvestment', 0)
@@ -166,12 +197,21 @@ def determine_closing_price(parsed_data: Dict, existing_closing_price: Optional[
 
 
 def download_companies_list(s3_client, bucket: str, year: int, month: int, day: int, logger: Logger) -> Optional[List[str]]:
+    global cached_companies, daily_files_downloaded
+
+    # Return cached value if already downloaded today
+    if daily_files_downloaded and cached_companies is not None:
+        logger.info(f"Using cached companies list ({len(cached_companies)} companies)")
+        return cached_companies
+
     try:
         file_path = f'./files/{year}/{month}/{day}/selected_companies.txt'
         s3_key = f'{year}/{month}/{day}/selected_companies.txt'
         s3_client.download_file(bucket, s3_key, file_path)
         with open(file_path, 'r') as f:
-            return f.read().splitlines()
+            cached_companies = f.read().splitlines()
+        logger.info(f"Downloaded companies list from S3: {len(cached_companies)} companies")
+        return cached_companies
     except Exception as e:
         logger.error(f"Companies were not selected for {year}/{month}/{day}. Error: {str(e)}")
         logger.error(f"Expected S3 location: s3://{bucket}/{year}/{month}/{day}/selected_companies.txt")
@@ -179,14 +219,47 @@ def download_companies_list(s3_client, bucket: str, year: int, month: int, day: 
 
 
 def download_settings_file(s3_client, bucket: str, logger: Logger) -> Optional[Dict]:
+    global cached_settings, daily_files_downloaded
+
+    # Return cached value if already downloaded today
+    if daily_files_downloaded and cached_settings is not None:
+        logger.info("Using cached settings.json")
+        return cached_settings
+
     try:
         s3_client.download_file(bucket, 'settings.json', './files/settings.json')
         with open('./files/settings.json', 'r') as f:
-            return loads(f.read())
+            cached_settings = loads(f.read())
+        logger.info("Downloaded settings.json from S3")
+        return cached_settings
     except Exception as e:
         logger.error(f"Failed to download settings.json: {str(e)}")
         logger.error(f"Expected S3 location: s3://{bucket}/settings.json")
         return None
+
+
+def download_daily_files(s3_client, bucket: str, year: int, month: int, day: int, logger: Logger) -> tuple[Optional[Dict], Optional[List[str]]]:
+    """
+    Download settings.json and selected_companies.txt once per day at startup.
+    Returns tuple of (settings, companies)
+    """
+    global daily_files_downloaded
+
+    logger.info("=" * 60)
+    logger.info("DOWNLOADING DAILY FILES FROM S3")
+    logger.info("=" * 60)
+
+    settings = download_settings_file(s3_client, bucket, logger)
+    companies = download_companies_list(s3_client, bucket, year, month, day, logger)
+
+    if settings and companies:
+        daily_files_downloaded = True
+        logger.info("Successfully downloaded all daily files")
+        logger.info("=" * 60)
+    else:
+        logger.error("Failed to download one or more daily files")
+
+    return settings, companies
 
 
 def fetch_and_parse_market_data(ticker: str, logger: Logger) -> Optional[Dict]:
@@ -413,16 +486,17 @@ def process_company(ticker: str, market_data_dir: str, year: int, month: int, da
 
 
 def run_market_data_collection_cycle(s3_client, logger: Logger) -> Optional[Dict[str, Dict]]:
+    global cached_settings, cached_companies
+
     year, month, day = get_current_date()
     market_data_dir = create_directories(year, month, day)
 
-    settings = download_settings_file(s3_client, S3_BUCKET, logger)
-    companies = download_companies_list(s3_client, S3_BUCKET, year, month, day, logger)
-
-    if not has_required_dependencies(settings, companies):
+    # Use cached values if available, otherwise return None
+    if not daily_files_downloaded or cached_settings is None or cached_companies is None:
+        logger.warning("Daily files not yet downloaded - skipping market data collection")
         return None
 
-    market_data_by_ticker = process_all_companies(companies, market_data_dir, year, month, day, logger)
+    market_data_by_ticker = process_all_companies(cached_companies, market_data_dir, year, month, day, logger)
 
     return market_data_by_ticker
 
@@ -737,10 +811,20 @@ def fetch_and_sync_positions(logger: Logger, s3_client=None) -> None:
 
 if __name__ == "__main__":
     logger = setup_logging(log_file='logs/app.log', log_level=INFO)
-    s3_client = client('s3')
+
+    # Assume IAM role for S3 access
+    s3_client = assume_iam_role(IAM_ROLE_NAME, logger)
 
     logger.info("Trading application has started successfully.")
     logger.info(f"Market data will update every {UPDATE_INTERVAL} seconds")
+
+    # Download daily files once at startup
+    year, month, day = get_current_date()
+    settings, companies = download_daily_files(s3_client, S3_BUCKET, year, month, day, logger)
+
+    if not settings or not companies:
+        logger.error("Failed to download required files. Application cannot start.")
+        exit(1)
 
     while True:
         fetch_and_sync_positions(logger, s3_client)
