@@ -3,7 +3,6 @@ locals {
   environment = var.environment
 }
 
-data "aws_caller_identity" "main" {}
 
 resource "aws_iam_role" "admin" {
   name = "${local.environment}-${local.app_name}-admin"
