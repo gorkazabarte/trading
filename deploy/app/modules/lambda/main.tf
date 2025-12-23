@@ -235,7 +235,7 @@ resource "aws_iam_policy" "lambda_policy_sync_storage" {
       {
         Effect   = "Allow"
         Action   = ["secretsmanager:GetSecretValue"]
-        Resource = "arn:aws:secretsmanager:${local.aws_region}:${local.aws_account_id}:secret:${local.environment}-${local.app_name}-service-account"
+        Resource = "arn:aws:secretsmanager:${local.aws_region}:${local.aws_account_id}:secret:${local.environment}-${local.app_name}-service-account-*"
       }
     ]
   })
