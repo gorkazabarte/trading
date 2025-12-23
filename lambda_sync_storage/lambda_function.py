@@ -26,11 +26,11 @@ drive_service = None
 
 
 def build_drive_path(year: int, month: int, day: int) -> str:
-    return f"{DRIVE_FOLDER_PREFIX}/{year}/{month}/{day}"
+    return f"{DRIVE_FOLDER_PREFIX}/{year}/{month:02d}/{day:02d}"
 
 
 def build_s3_key(year: int, month: int, day: int) -> str:
-    return f"{year}/{month}/{day}/{CSV_FILENAME}"
+    return f"{year}/{month:02d}/{day:02d}/{CSV_FILENAME}"
 
 
 def create_error_response(status_code: int, message: str) -> Dict[str, Any]:
@@ -83,16 +83,23 @@ def find_file_in_folder(folder_path: str, filename: str) -> Optional[str]:
         results = drive_service.files().list(
             q=query,
             fields="files(id, name)",
-            pageSize=1
+            pageSize=1,
+            supportsAllDrives=True,
+            includeItemsFromAllDrives=True
         ).execute()
 
         files = results.get('files', [])
         if files:
+            print(f"Found file '{filename}' with ID: {files[0]['id']}")
             return files[0]['id']
 
+        print(f"ERROR: File '{filename}' not found in folder: {folder_path}")
         return None
 
     except Exception as e:
+        print(f"ERROR: Exception in find_file_in_folder: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return None
 
 
@@ -104,11 +111,14 @@ def find_folder_by_path(folder_parts: List[str]) -> Optional[str]:
         results = drive_service.files().list(
             q=query,
             fields="files(id, name)",
-            pageSize=1
+            pageSize=1,
+            supportsAllDrives=True,
+            includeItemsFromAllDrives=True
         ).execute()
 
         folders = results.get('files', [])
         if not folders:
+            print(f"ERROR: Folder '{folder_name}' not found under parent '{current_parent}'")
             return None
 
         current_parent = folders[0]['id']
