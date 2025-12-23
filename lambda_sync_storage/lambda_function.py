@@ -4,15 +4,28 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
 
 from boto3 import client
-import requests
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseDownload
+import io
 
 s3_client = client("s3")
+secrets_client = client("secretsmanager")
 
 CSV_FILENAME = "all_companies.csv"
-DRIVE_FOLDER_URL = environ.get("DRIVE_FOLDER_URL")
-S3_BUCKET = environ.get('S3_BUCKET')
+DRIVE_API_VERSION = "v3"
+DRIVE_FOLDER_PREFIX = "trading"
+ENV_SECRET_NAME = "GOOGLE_SERVICE_ACCOUNT_SECRET_NAME"
+ENV_S3_BUCKET = "S3_BUCKET"
 EXPORT_MIME_TYPE_CSV = "text/csv"
 MONTHS_AHEAD = 2
+SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
+
+drive_service = None
+
+
+def build_drive_path(year: int, month: int, day: int) -> str:
+    return f"{DRIVE_FOLDER_PREFIX}/{year}/{month}/{day}"
 
 
 def build_s3_key(year: int, month: int, day: int) -> str:
@@ -36,38 +49,67 @@ def create_success_response(processed_dates: List[str], skipped: int) -> Dict[st
     }
 
 
-def download_csv_from_url(url: str) -> Optional[str]:
+def download_file_from_drive(file_id: str) -> Optional[str]:
     try:
-        logger.info(f"Downloading CSV from URL")
-        session = requests.Session()
-        response = session.get(url, timeout=30)
-        response.raise_for_status()
-        return response.text
-    except requests.RequestException as e:
-        logger.error(f"Failed to download from URL: {str(e)}")
-        return None
+        request = drive_service.files().get_media(fileId=file_id)
 
+        file_buffer = io.BytesIO()
+        downloader = MediaIoBaseDownload(file_buffer, request)
 
-def extract_file_id_from_url(url: str) -> Optional[str]:
-    """
-    Extract file ID from Google Drive URL.
-    Supports formats:
-    - https://drive.google.com/file/d/FILE_ID/view
-    - https://drive.google.com/open?id=FILE_ID
-    - https://drive.google.com/uc?id=FILE_ID
-    """
-    try:
-        if '/file/d/' in url:
-            file_id = url.split('/file/d/')[1].split('/')[0]
-        elif 'id=' in url:
-            file_id = url.split('id=')[1].split('&')[0]
-        else:
-            logger.error(f"Unsupported URL format: {url}")
-            return None
-        return file_id
+        done = False
+        while not done:
+            status, done = downloader.next_chunk()
+
+        file_buffer.seek(0)
+        return file_buffer.read().decode('utf-8')
+
     except Exception as e:
-        logger.error(f"Error extracting file ID from URL: {str(e)}")
         return None
+
+
+def find_file_in_folder(folder_path: str, filename: str) -> Optional[str]:
+    try:
+        folder_parts = folder_path.split("/")
+        folder_id = find_folder_by_path(folder_parts)
+
+        if not folder_id:
+            return None
+
+        query = f"name='{filename}' and '{folder_id}' in parents and trashed=false"
+        results = drive_service.files().list(
+            q=query,
+            fields="files(id, name)",
+            pageSize=1
+        ).execute()
+
+        files = results.get('files', [])
+        if files:
+            return files[0]['id']
+
+        return None
+
+    except Exception as e:
+        return None
+
+
+def find_folder_by_path(folder_parts: List[str]) -> Optional[str]:
+    current_parent = 'root'
+
+    for folder_name in folder_parts:
+        query = f"name='{folder_name}' and '{current_parent}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
+        results = drive_service.files().list(
+            q=query,
+            fields="files(id, name)",
+            pageSize=1
+        ).execute()
+
+        folders = results.get('files', [])
+        if not folders:
+            return None
+
+        current_parent = folders[0]['id']
+
+    return current_parent
 
 
 def generate_date_range(start_date: datetime, months: int) -> List[tuple[int, int, int]]:
@@ -82,27 +124,55 @@ def generate_date_range(start_date: datetime, months: int) -> List[tuple[int, in
     return dates
 
 
-def get_drive_folder_url() -> str:
-    return environ[DRIVE_FOLDER_URL]
+def get_credentials_from_secrets_manager() -> service_account.Credentials:
+    secret_name = environ.get(ENV_SECRET_NAME, "google-service-account-trading")
+    service_account_json = get_secret(secret_name)
+    service_account_info = json.loads(service_account_json)
+
+    return service_account.Credentials.from_service_account_info(
+        service_account_info,
+        scopes=SCOPES
+    )
+
+
+def get_drive_service():
+    global drive_service
+    if drive_service is None:
+        credentials = get_credentials_from_secrets_manager()
+        drive_service = build("drive", DRIVE_API_VERSION, credentials=credentials)
+    return drive_service
+
+
+def get_secret(secret_name: str) -> str:
+    try:
+        response = secrets_client.get_secret_value(SecretId=secret_name)
+
+        if 'SecretString' in response:
+            return response['SecretString']
+        else:
+            raise ValueError(f"Secret {secret_name} is not a string secret")
+
+    except Exception as e:
+        raise
 
 
 def get_s3_bucket() -> str:
-    return environ[S3_BUCKET]
+    return environ[ENV_S3_BUCKET]
 
 
 def get_start_date() -> datetime:
     return datetime.now()
 
 
-def process_single_date(s3_bucket: str, drive_folder_url: str, year: int, month: int, day: int) -> bool:
+def process_single_date(s3_bucket: str, year: int, month: int, day: int) -> bool:
     try:
+        drive_path = build_drive_path(year, month, day)
+        file_id = find_file_in_folder(drive_path, CSV_FILENAME)
 
-        file_id = extract_file_id_from_url(drive_folder_url)
         if not file_id:
             return False
 
-        download_url = f"https://drive.google.com/uc?export=download&id={file_id}"
-        csv_content = download_csv_from_url(download_url)
+        csv_content = download_file_from_drive(file_id)
 
         if not csv_content:
             return False
@@ -127,7 +197,7 @@ def upload_to_s3(content: str, bucket: str, key: str) -> None:
 
 def lambda_handler(event, context):
     try:
-        drive_folder_url = get_drive_folder_url()
+        get_drive_service()
         s3_bucket = get_s3_bucket()
         start_date = get_start_date()
 
@@ -137,7 +207,7 @@ def lambda_handler(event, context):
         skipped = 0
 
         for year, month, day in date_range:
-            success = process_single_date(s3_bucket, drive_folder_url, year, month, day)
+            success = process_single_date(s3_bucket, year, month, day)
             if success:
                 processed_dates.append(f"{year}-{month:02d}-{day:02d}")
             else:

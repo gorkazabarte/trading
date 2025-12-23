@@ -12,8 +12,8 @@ locals {
 }
 
 inputs = {
-  s3_bucket_name   = dependency.s3.outputs.s3_bucket_name
-  drive_folder_url = get_env("DRIVE_FOLDER_URL", "")
+  s3_bucket_name                      = dependency.s3.outputs.s3_bucket_name
+  google_service_account_secret_name = get_env("GOOGLE_SERVICE_ACCOUNT_SECRET_NAME", "google-service-account-trading")
 }
 
 remote_state {

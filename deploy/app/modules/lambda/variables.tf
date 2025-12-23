@@ -28,8 +28,8 @@ variable "s3_bucket_name" {
   type        = string
 }
 
-variable "drive_folder_url" {
-  description = "Google Drive shareable link for the CSV file to sync"
+variable "google_service_account_secret_name" {
+  description = "Name of the AWS Secrets Manager secret containing Google service account JSON"
   type        = string
-  default     = ""
+  default     = "google-service-account-trading"
 }
