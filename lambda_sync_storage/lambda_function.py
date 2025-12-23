@@ -71,9 +71,12 @@ def download_file_from_drive(file_id: str) -> Optional[str]:
 def find_file_in_folder(folder_path: str, filename: str) -> Optional[str]:
     try:
         folder_parts = folder_path.split("/")
+        print(f"Finding folder by path parts: {folder_parts}")
         folder_id = find_folder_by_path(folder_parts)
+        print(f"Found folder ID: {folder_id}")
 
         if not folder_id:
+            print(f"ERROR: Folder not found: {folder_path}")
             return None
 
         query = f"name='{filename}' and '{folder_id}' in parents and trashed=false"
@@ -173,8 +176,9 @@ def get_start_date() -> datetime:
 def process_single_date(s3_bucket: str, year: int, month: int, day: int) -> bool:
     try:
         drive_path = build_drive_path(year, month, day)
+        print(f"Looking for file in Drive path: {drive_path}")
         file_id = find_file_in_folder(drive_path, CSV_FILENAME)
-
+        print(f"Found file ID: {file_id}")
         if not file_id:
             return False
 
@@ -212,6 +216,7 @@ def lambda_handler(event, context):
         skipped = 0
 
         for year, month, day in date_range:
+            print(f"Processing date: {year}-{month:02d}-{day:02d}")
             success = process_single_date(s3_bucket, year, month, day)
             if success:
                 processed_dates.append(f"{year}-{month:02d}-{day:02d}")
