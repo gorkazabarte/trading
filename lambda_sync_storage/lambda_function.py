@@ -151,9 +151,11 @@ def get_secret(secret_name: str) -> str:
         if 'SecretString' in response:
             return response['SecretString']
         else:
+            print(f"ERROR: Secret {secret_name} is not a string secret")
             raise ValueError(f"Secret {secret_name} is not a string secret")
 
     except Exception as e:
+        print(f"ERROR: Failed to retrieve secret {secret_name}: {str(e)}")
         raise
 
 
