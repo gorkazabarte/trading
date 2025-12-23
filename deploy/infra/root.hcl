@@ -1,9 +1,10 @@
 locals {
-  app_name     = get_env("APP_NAME")
-  aws_iam_role = get_env("AWS_IAM_ROLE")
-  aws_region   = get_env("AWS_REGION")
-  environment  = get_env("ENVIRONMENT")
-  tf_bucket    = get_env("TF_BUCKET")
+  app_name                    = get_env("APP_NAME")
+  aws_iam_role                = get_env("AWS_IAM_ROLE")
+  aws_region                  = get_env("AWS_REGION")
+  environment                 = get_env("ENVIRONMENT")
+  google_service_account_json = get_env("GOOGLE_SERVICE_ACCOUNT_JSON")
+  tf_bucket                   = get_env("TF_BUCKET")
 }
 
 inputs = {

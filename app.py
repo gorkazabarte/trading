@@ -207,7 +207,6 @@ def download_companies_list(s3_client, bucket: str, year: int, month: int, day: 
     try:
         file_path = f'./files/{year}/{month}/{day}/selected_companies.txt'
 
-        # Create directory if it doesn't exist
         makedirs(path.dirname(file_path), exist_ok=True)
 
         s3_key = f'{year}/{month}/{day}/selected_companies.txt'
