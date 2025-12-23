@@ -15,8 +15,8 @@ secrets_client = client("secretsmanager")
 CSV_FILENAME = "all_companies.csv"
 DRIVE_API_VERSION = "v3"
 DRIVE_FOLDER_PREFIX = "trading"
-ENV_SECRET_NAME = "GOOGLE_SERVICE_ACCOUNT_SECRET_NAME"
-ENV_S3_BUCKET = "S3_BUCKET"
+SECRET_NAME = environ.get("GOOGLE_SERVICE_ACCOUNT_SECRET_NAME")
+S3_BUCKET = environ.get("S3_BUCKET")
 EXPORT_MIME_TYPE_CSV = "text/csv"
 MONTHS_AHEAD = 2
 SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
@@ -125,7 +125,7 @@ def generate_date_range(start_date: datetime, months: int) -> List[tuple[int, in
 
 
 def get_credentials_from_secrets_manager() -> service_account.Credentials:
-    secret_name = environ.get(ENV_SECRET_NAME, "google-service-account-trading")
+    secret_name = environ.get(SECRET_NAME, "google-service-account-trading")
     service_account_json = get_secret(secret_name)
     service_account_info = json.loads(service_account_json)
 
@@ -157,7 +157,7 @@ def get_secret(secret_name: str) -> str:
 
 
 def get_s3_bucket() -> str:
-    return environ[ENV_S3_BUCKET]
+    return environ[S3_BUCKET]
 
 
 def get_start_date() -> datetime:

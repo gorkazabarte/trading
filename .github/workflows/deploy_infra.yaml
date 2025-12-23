@@ -53,4 +53,4 @@ jobs:
           AWS_REGION: us-west-2
           ENVIRONMENT: ${{ inputs.environment }}
           TF_BUCKET: ${{ inputs.environment }}-${{ inputs.app_name }}-tf
-          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          SVC_ACCOUNT_JSON: ${{ secrets.SVC_ACCOUNT_JSON }}

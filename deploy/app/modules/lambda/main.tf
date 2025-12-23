@@ -1,10 +1,11 @@
 locals {
-  app_name       = var.app_name
-  app_version    = var.app_version
-  aws_account_id = var.aws_account_id
-  aws_region     = var.aws_region
-  aws_s3_bucket  = var.s3_bucket_name
-  environment    = var.environment
+  app_name                    = var.app_name
+  app_version                 = var.app_version
+  aws_account_id              = var.aws_account_id
+  aws_region                  = var.aws_region
+  aws_s3_bucket               = var.s3_bucket_name
+  environment                 = var.environment
+  service_account_secret_name = var.service_account_secret_name
 }
 
 resource "aws_iam_policy" "lambda_policy_get_calendar" {
@@ -246,8 +247,8 @@ module "lambda_function_sync_storage" {
   create_package = false
   description    = "Sync CSV files from Google Drive to S3"
   environment_variables = {
-    GOOGLE_SERVICE_ACCOUNT_SECRET_NAME = var.google_service_account_secret_name
-    S3_BUCKET                          = local.aws_s3_bucket
+    SVC_ACCOUNT_SECRET_NAME = local.service_account_secret_name
+    S3_BUCKET               = local.aws_s3_bucket
   }
   function_name  = "${local.environment}-${local.app_name}-sync-storage"
   image_uri      = "${local.aws_account_id}.dkr.ecr.${local.aws_region}.amazonaws.com/${local.environment}-${local.app_name}-sync-storage:${local.app_version}"

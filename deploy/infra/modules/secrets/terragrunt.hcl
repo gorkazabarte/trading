@@ -3,13 +3,13 @@ include "root" {
 }
 
 locals {
-  google_service_account_json = get_env("GOOGLE_SERVICE_ACCOUNT_JSON", "")
-  root_config                 = read_terragrunt_config(find_in_parent_folders("root.hcl"))
-  s3_bucket_key               = "${local.root_config.locals.app_name}/infra/${local.root_config.locals.environment}/secrets/terraform.tfstate"
+  root_config      = read_terragrunt_config(find_in_parent_folders("root.hcl"))
+  svc_account_json = get_env("SVC_ACCOUNT_JSON", "")
+  s3_bucket_key    = "${local.root_config.locals.app_name}/infra/${local.root_config.locals.environment}/secrets/terraform.tfstate"
 }
 
 inputs = {
-  google_service_account_json = local.google_service_account_json
+  svc_account_json = local.svc_account_json
 }
 
 remote_state {
@@ -19,10 +19,10 @@ remote_state {
     if_exists = "overwrite"
   }
   config = {
-    bucket         = local.root_config.locals.tf_bucket
-    encrypt        = true
-    key            = local.s3_bucket_key
-    region         = local.root_config.locals.aws_region
-    use_lockfile   = true
+    bucket       = local.root_config.locals.tf_bucket
+    encrypt      = true
+    key          = local.s3_bucket_key
+    region       = local.root_config.locals.aws_region
+    use_lockfile = true
   }
 }
