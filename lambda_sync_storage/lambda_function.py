@@ -104,24 +104,57 @@ def find_file_in_folder(folder_path: str, filename: str) -> Optional[str]:
 
 
 def find_folder_by_path(folder_parts: List[str]) -> Optional[str]:
-    current_parent = 'root'
+    # For the first folder (trading), search globally since "root" may be language-specific
+    # After finding it, navigate normally through subfolders
 
-    for folder_name in folder_parts:
-        query = f"name='{folder_name}' and '{current_parent}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
-        results = drive_service.files().list(
-            q=query,
-            fields="files(id, name)",
-            pageSize=1,
-            supportsAllDrives=True,
-            includeItemsFromAllDrives=True
-        ).execute()
+    for i, folder_name in enumerate(folder_parts):
+        if i == 0:
+            # First folder: search everywhere (don't rely on 'root')
+            print(f"Searching globally for folder '{folder_name}'")
+            query = f"name='{folder_name}' and mimeType='application/vnd.google-apps.folder' and trashed=false"
+            results = drive_service.files().list(
+                q=query,
+                fields="files(id, name, parents)",
+                pageSize=5,
+                supportsAllDrives=True,
+                includeItemsFromAllDrives=True
+            ).execute()
 
-        folders = results.get('files', [])
-        if not folders:
-            print(f"ERROR: Folder '{folder_name}' not found under parent '{current_parent}'")
-            return None
+            folders = results.get('files', [])
 
-        current_parent = folders[0]['id']
+            if not folders:
+                print(f"ERROR: Folder '{folder_name}' not found anywhere")
+                return None
+
+            if len(folders) > 1:
+                print(f"Found {len(folders)} folders named '{folder_name}':")
+                for f in folders:
+                    print(f"  - ID: {f['id']}, Parents: {f.get('parents', ['<no parent>'])}")
+                print(f"Using first one: {folders[0]['id']}")
+            else:
+                print(f"Found folder '{folder_name}' with ID: {folders[0]['id']}")
+
+            current_parent = folders[0]['id']
+        else:
+            # Subsequent folders: search under the parent we found
+            print(f"Searching for folder '{folder_name}' under parent '{current_parent}'")
+            query = f"name='{folder_name}' and '{current_parent}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
+            results = drive_service.files().list(
+                q=query,
+                fields="files(id, name, parents)",
+                pageSize=1,
+                supportsAllDrives=True,
+                includeItemsFromAllDrives=True
+            ).execute()
+
+            folders = results.get('files', [])
+
+            if not folders:
+                print(f"ERROR: Folder '{folder_name}' not found under parent '{current_parent}'")
+                return None
+
+            current_parent = folders[0]['id']
+            print(f"Using folder ID: {current_parent}")
 
     return current_parent
 
@@ -154,6 +187,26 @@ def get_drive_service():
     if drive_service is None:
         credentials = get_credentials_from_secrets_manager()
         drive_service = build("drive", DRIVE_API_VERSION, credentials=credentials)
+
+        # Debug: List all accessible folders to help diagnose issues
+        try:
+            print("Listing all accessible folders...")
+            results = drive_service.files().list(
+                q="mimeType='application/vnd.google-apps.folder' and trashed=false",
+                fields="files(id, name, parents)",
+                pageSize=50,
+                supportsAllDrives=True,
+                includeItemsFromAllDrives=True
+            ).execute()
+
+            folders = results.get('files', [])
+            print(f"Service account can see {len(folders)} folders:")
+            for folder in folders:
+                parents = folder.get('parents', ['<no parent>'])
+                print(f"  - {folder['name']} (ID: {folder['id']}, Parents: {parents})")
+        except Exception as e:
+            print(f"WARNING: Could not list folders: {str(e)}")
+
     return drive_service
 
 
