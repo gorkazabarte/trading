@@ -2,7 +2,7 @@ locals {
   app_name     = var.app_name
   aws_iam_role = var.aws_iam_role
   environment  = var.environment
-  types        = toset(["filter-info", "get-calendar", "get-positions", "select-companies", "update-settings"])
+  types        = toset(["filter-info", "get-calendar", "get-positions", "select-companies", "sync_storage", "update-settings"])
 }
 
 module "ecr" {
