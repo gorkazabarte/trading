@@ -1,5 +1,4 @@
 import json
-import logging
 from os import environ
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
@@ -7,14 +6,11 @@ from typing import Dict, Any, List, Optional
 from boto3 import client
 import requests
 
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
-
 s3_client = client("s3")
 
 CSV_FILENAME = "all_companies.csv"
-ENV_DRIVE_FOLDER_URL = "DRIVE_FOLDER_URL"
-ENV_S3_BUCKET = "S3_BUCKET_NAME"
+DRIVE_FOLDER_URL = environ.get("DRIVE_FOLDER_URL")
+S3_BUCKET = environ.get('S3_BUCKET')
 EXPORT_MIME_TYPE_CSV = "text/csv"
 MONTHS_AHEAD = 2
 
@@ -87,11 +83,11 @@ def generate_date_range(start_date: datetime, months: int) -> List[tuple[int, in
 
 
 def get_drive_folder_url() -> str:
-    return environ[ENV_DRIVE_FOLDER_URL]
+    return environ[DRIVE_FOLDER_URL]
 
 
 def get_s3_bucket() -> str:
-    return environ[ENV_S3_BUCKET]
+    return environ[S3_BUCKET]
 
 
 def get_start_date() -> datetime:
@@ -100,28 +96,23 @@ def get_start_date() -> datetime:
 
 def process_single_date(s3_bucket: str, drive_folder_url: str, year: int, month: int, day: int) -> bool:
     try:
-        logger.info(f"Processing {year}/{month:02d}/{day:02d}")
 
         file_id = extract_file_id_from_url(drive_folder_url)
         if not file_id:
-            logger.warning(f"Skipping {year}/{month:02d}/{day:02d} - invalid Google Drive URL")
             return False
 
         download_url = f"https://drive.google.com/uc?export=download&id={file_id}"
         csv_content = download_csv_from_url(download_url)
 
         if not csv_content:
-            logger.warning(f"Skipping {year}/{month:02d}/{day:02d} - failed to download")
             return False
 
         s3_key = build_s3_key(year, month, day)
         upload_to_s3(csv_content, s3_bucket, s3_key)
 
-        logger.info(f"Successfully uploaded to s3://{s3_bucket}/{s3_key}")
         return True
 
     except Exception as e:
-        logger.error(f"Error processing {year}/{month:02d}/{day:02d}: {str(e)}")
         return False
 
 
@@ -136,15 +127,11 @@ def upload_to_s3(content: str, bucket: str, key: str) -> None:
 
 def lambda_handler(event, context):
     try:
-        logger.info("Starting CSV sync from Google Drive to S3")
-
         drive_folder_url = get_drive_folder_url()
         s3_bucket = get_s3_bucket()
         start_date = get_start_date()
 
         date_range = generate_date_range(start_date, MONTHS_AHEAD)
-        logger.info(f"Processing {len(date_range)} dates (today + {MONTHS_AHEAD} months)")
-        logger.info(f"Using Google Drive URL: {drive_folder_url}")
 
         processed_dates = []
         skipped = 0
@@ -156,14 +143,11 @@ def lambda_handler(event, context):
             else:
                 skipped += 1
 
-        logger.info(f"Completed: {len(processed_dates)}/{len(date_range)} files uploaded, {skipped} skipped")
         return create_success_response(processed_dates, skipped)
 
     except KeyError as e:
-        logger.error(f"Missing environment variable: {e}")
         return create_error_response(500, f"Configuration error: Missing {e}")
 
     except Exception as e:
-        logger.error(f"Error processing files: {str(e)}", exc_info=True)
         return create_error_response(500, f"Failed to process files: {str(e)}")
 

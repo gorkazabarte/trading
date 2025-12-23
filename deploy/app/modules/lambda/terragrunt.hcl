@@ -12,7 +12,8 @@ locals {
 }
 
 inputs = {
-  s3_bucket_name      = dependency.s3.outputs.s3_bucket_name
+  s3_bucket_name   = dependency.s3.outputs.s3_bucket_name
+  drive_folder_url = get_env("DRIVE_FOLDER_URL", "")
 }
 
 remote_state {

@@ -27,3 +27,9 @@ variable "s3_bucket_name" {
   description = "The name of the S3 bucket for Lambda function code storage."
   type        = string
 }
+
+variable "drive_folder_url" {
+  description = "Google Drive shareable link for the CSV file to sync"
+  type        = string
+  default     = ""
+}

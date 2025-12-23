@@ -44,6 +44,15 @@ def calculate_date_range() -> tuple[datetime, datetime]:
     return start, end
 
 
+def detect_csv_separator(csv_content: str) -> str:
+    first_line = csv_content.split('\n')[0]
+
+    semicolon_count = first_line.count(';')
+    comma_count = first_line.count(',')
+
+    return ';' if semicolon_count > comma_count else ','
+
+
 def download_csv_from_s3(year: int, month: int, day: int) -> str:
     key = f"{year}/{month:02}/{day:02}/all_companies.csv"
     obj = s3.get_object(Bucket=S3_BUCKET, Key=key)
@@ -109,7 +118,8 @@ def lambda_handler(event, context):
     year, month, day = get_target_day(event)
 
     csv_data = download_csv_from_s3(year, month, day)
-    df = read_csv(StringIO(csv_data), sep=';')
+    separator = detect_csv_separator(csv_data)
+    df = read_csv(StringIO(csv_data), sep=separator)
     df_filtered = filter_after_market_close(df)
 
     symbols = extract_unique_symbols(df_filtered)

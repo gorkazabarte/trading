@@ -4,6 +4,7 @@ locals {
   aws_account_id   = var.aws_account_id
   aws_region       = var.aws_region
   aws_s3_bucket    = var.s3_bucket_name
+  drive_folder_url = var.drive_folder_url
   environment      = var.environment
 }
 
@@ -212,6 +213,45 @@ resource "aws_iam_policy" "lambda_policy_update_settings" {
       }
     ]
   })
+}
+
+resource "aws_iam_policy" "lambda_policy_sync_storage" {
+  name        = "${local.environment}-${local.app_name}-sync-storage"
+  description = "Sync Google Docs with Amazon S3 bucket"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["s3:PutObject"]
+        Resource = "arn:aws:s3:::${local.aws_s3_bucket}/*"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["s3:ListBucket"]
+        Resource = "arn:aws:s3:::${local.aws_s3_bucket}"
+      }
+    ]
+  })
+}
+
+module "lambda_function_sync_storage" {
+  source         = "terraform-aws-modules/lambda/aws"
+  attach_policy  = true
+  create_package = false
+  description    = "Sync CSV files from Google Drive to S3"
+  environment_variables = {
+    DRIVE_FOLDER_URL = local.drive_folder_url
+    S3_BUCKET        = local.aws_s3_bucket}
+  }
+  function_name  = "${local.environment}-${local.app_name}-sync-storage"
+  image_uri      = "${local.aws_account_id}.dkr.ecr.${local.aws_region}.amazonaws.com/${local.environment}-${local.app_name}-sync-storage:${local.app_version}"
+  memory_size    = 512
+  timeout        = 300
+  package_type   = "Image"
+  policy         = aws_iam_policy.lambda_policy_sync_storage.arn
+  version        = "8.1.2"
 }
 
 module "lambda_function_update_settings" {
