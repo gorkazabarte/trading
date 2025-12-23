@@ -9,14 +9,15 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 import io
 
+
 s3_client = client("s3")
 secrets_client = client("secretsmanager")
 
 CSV_FILENAME = "all_companies.csv"
 DRIVE_API_VERSION = "v3"
 DRIVE_FOLDER_PREFIX = "trading"
-SECRET_NAME = environ.get("SVC_ACCOUNT_SECRET_NAME")
-S3_BUCKET = environ.get("S3_BUCKET")
+ENV_SECRET_NAME = "SVC_ACCOUNT_SECRET_NAME"
+ENV_S3_BUCKET = "S3_BUCKET"
 EXPORT_MIME_TYPE_CSV = "text/csv"
 MONTHS_AHEAD = 2
 SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
@@ -125,7 +126,7 @@ def generate_date_range(start_date: datetime, months: int) -> List[tuple[int, in
 
 
 def get_credentials_from_secrets_manager() -> service_account.Credentials:
-    secret_name = environ.get(SECRET_NAME, "dev-trading-service-account")
+    secret_name = environ.get(ENV_SECRET_NAME, "dev-trading-service-account")
     service_account_json = get_secret(secret_name)
     service_account_info = json.loads(service_account_json)
 
@@ -139,7 +140,6 @@ def get_drive_service():
     global drive_service
     if drive_service is None:
         credentials = get_credentials_from_secrets_manager()
-        print(f"INFO: {credentials}")
         drive_service = build("drive", DRIVE_API_VERSION, credentials=credentials)
     return drive_service
 
@@ -158,7 +158,10 @@ def get_secret(secret_name: str) -> str:
 
 
 def get_s3_bucket() -> str:
-    return environ[S3_BUCKET]
+    bucket = environ.get(ENV_S3_BUCKET)
+    if not bucket:
+        raise ValueError(f"Environment variable {ENV_S3_BUCKET} is not set")
+    return bucket
 
 
 def get_start_date() -> datetime:
@@ -201,7 +204,6 @@ def lambda_handler(event, context):
         get_drive_service()
         s3_bucket = get_s3_bucket()
         start_date = get_start_date()
-
         date_range = generate_date_range(start_date, MONTHS_AHEAD)
 
         processed_dates = []
@@ -217,7 +219,7 @@ def lambda_handler(event, context):
         return create_success_response(processed_dates, skipped)
 
     except KeyError as e:
-        return create_error_response(500, f"Configuration error: Missing {e}")
+        return create_error_response(500, f"Configuration error: Missing environment variable {e}")
 
     except Exception as e:
         return create_error_response(500, f"Failed to process files: {str(e)}")
