@@ -23,10 +23,10 @@ variable "environment" {
   type        = string
 }
 
-variable "service_account_secret_name" {
+variable "svc_account_secret_name" {
   description = "Name of the AWS Secrets Manager secret containing Google service account JSON"
   type        = string
-  default     = "service-account-trading"
+  default     = "dev-trading-service-account"
 }
 
 variable "s3_bucket_name" {

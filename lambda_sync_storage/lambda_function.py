@@ -15,7 +15,7 @@ secrets_client = client("secretsmanager")
 CSV_FILENAME = "all_companies.csv"
 DRIVE_API_VERSION = "v3"
 DRIVE_FOLDER_PREFIX = "trading"
-SECRET_NAME = environ.get("GOOGLE_SERVICE_ACCOUNT_SECRET_NAME")
+SECRET_NAME = environ.get("SVC_ACCOUNT_SECRET_NAME")
 S3_BUCKET = environ.get("S3_BUCKET")
 EXPORT_MIME_TYPE_CSV = "text/csv"
 MONTHS_AHEAD = 2
@@ -125,7 +125,7 @@ def generate_date_range(start_date: datetime, months: int) -> List[tuple[int, in
 
 
 def get_credentials_from_secrets_manager() -> service_account.Credentials:
-    secret_name = environ.get(SECRET_NAME, "google-service-account-trading")
+    secret_name = environ.get(SECRET_NAME, "dev-trading-service-account")
     service_account_json = get_secret(secret_name)
     service_account_info = json.loads(service_account_json)
 
@@ -139,6 +139,7 @@ def get_drive_service():
     global drive_service
     if drive_service is None:
         credentials = get_credentials_from_secrets_manager()
+        print(f"INFO: {credentials}")
         drive_service = build("drive", DRIVE_API_VERSION, credentials=credentials)
     return drive_service
 
