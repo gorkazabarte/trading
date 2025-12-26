@@ -276,3 +276,50 @@ module "lambda_function_update_settings" {
   policy         = aws_iam_policy.lambda_policy_update_settings.arn
   version        = "8.1.2"
 }
+
+resource "aws_iam_policy" "lambda_policy_get_settings" {
+  name        = "${local.environment}-${local.app_name}-get-settings"
+  description = "Get settings from S3 bucket"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["s3:ListBucket"]
+        Resource = "arn:aws:s3:::${local.aws_s3_bucket}"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["s3:GetObject"]
+        Resource = "arn:aws:s3:::${local.aws_s3_bucket}/settings.json"
+      }
+    ]
+  })
+}
+
+module "lambda_function_get_settings" {
+  source         = "terraform-aws-modules/lambda/aws"
+  attach_policy  = true
+  create_package = false
+  description    = "AWS Lambda function to get settings from S3 bucket"
+  environment_variables = {
+    S3_BUCKET = "${local.aws_s3_bucket}"
+    S3_KEY    = "settings.json"
+  }
+  function_name  = "${local.environment}-${local.app_name}-get-settings"
+  image_uri      = "${local.aws_account_id}.dkr.ecr.${local.aws_region}.amazonaws.com/${local.environment}-${local.app_name}-get-settings:${local.app_version}"
+  memory_size    = 256
+  timeout        = 30
+  package_type   = "Image"
+  policy         = aws_iam_policy.lambda_policy_get_settings.arn
+  version        = "8.1.2"
+}
+
+resource "aws_lambda_permission" "api_gateway_invoke_get_settings" {
+  statement_id  = "AllowAPIGatewayGetSettingsInvoke"
+  action        = "lambda:InvokeFunction"
+  function_name = module.lambda_function_get_settings.lambda_function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "arn:aws:execute-api:${local.aws_region}:${local.aws_account_id}:*/*"
+}

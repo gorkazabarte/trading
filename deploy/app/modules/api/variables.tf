@@ -43,6 +43,16 @@ variable "lambda_get_positions_name" {
   type        = string
 }
 
+variable "lambda_get_settings_arn" {
+  description = "ARN of the Lambda function for getting settings"
+  type        = string
+}
+
+variable "lambda_get_settings_name" {
+  description = "Name of the Lambda function for getting settings"
+  type        = string
+}
+
 variable "lambda_select_companies_arn" {
   description = "ARN of the Lambda function for selecting companies"
   type        = string
@@ -62,4 +72,3 @@ variable "lambda_update_settings_name" {
   description = "Name of the Lambda function for updating settings"
   type        = string
 }
-

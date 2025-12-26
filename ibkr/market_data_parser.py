@@ -1,7 +1,6 @@
 from datetime import datetime, time
 
 CLOSING_PRICE_PREFIX = 'C'
-DELAYED_PAST_CLOSE_CODE = 'DPB'
 MARKET_CLOSE_TIME = time(16, 0)
 MARKET_OPEN_TIME = time(9, 30)
 OPENING_PRICE_PREFIX = 'O'
@@ -35,10 +34,6 @@ def create_empty_result(market_data: dict) -> dict:
         'exchange_code': None,
         'timestamp': None
     }
-
-
-def is_delayed_past_close(exchange_code: str) -> bool:
-    return exchange_code == DELAYED_PAST_CLOSE_CODE
 
 
 def has_closing_price_prefix(price_str: str) -> bool:
@@ -134,9 +129,6 @@ def parse_market_data(market_data: dict) -> dict:
     exchange_code = market_data.get('6509')
     result['exchange_code'] = exchange_code
 
-    if is_delayed_past_close(exchange_code):
-        result['is_market_closed'] = True
-
     parse_last_price(market_data, result)
     parse_change_from_close(market_data, result)
     parse_change_percentage(market_data, result)
@@ -149,8 +141,9 @@ def parse_market_data(market_data: dict) -> dict:
     parse_timestamp(market_data, result)
     parse_spread(result)
 
-    if is_during_market_hours() and result['price_type'] == 'Last Trade':
-        result['is_market_closed'] = False
+    # Set market closed status based on actual market hours, not exchange code
+    if not is_during_market_hours():
+        result['is_market_closed'] = True
 
     return result
 

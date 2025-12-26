@@ -5,13 +5,18 @@ from os import makedirs, path
 from typing import Dict, List, Optional
 
 from boto3 import client
+from requests import post, get
+from urllib3 import disable_warnings
+from urllib3.exceptions import InsecureRequestWarning
 
 from ibkr.contract_details import contract_search
 from ibkr.historical_data import get_market_snapshot
 from ibkr.market_data_parser import format_market_data_log, parse_market_data
-from ibkr.order_request import place_market_buy_order, place_market_sell_order
+from ibkr.order_request import place_market_sell_order, place_market_buy_order_with_stop_and_profit
 from ibkr.portfolio import format_position_summary, get_all_positions, parse_position
 from logs.setup import setup_logging
+
+disable_warnings(InsecureRequestWarning)
 
 MARKET_CLOSE_TIME = time(16, 0)
 MINUTES_BEFORE_CLOSE_TO_SELL = 10
@@ -19,6 +24,7 @@ S3_BUCKET = 'dev-trading-data-storage'
 SETTINGS_FILE_PATH = 'files/settings.json'
 UPDATE_INTERVAL = 0
 IAM_ROLE_NAME = 'dev-trading-admin'
+IBKR_BASE_URL = "https://localhost:5001/v1/api/"
 
 bought_shares_today: Dict[str, Dict[str, any]] = {}
 closed_positions_today: List[Dict[str, any]] = []
@@ -87,6 +93,39 @@ def calculate_quantity_from_budget(current_price: float) -> int:
     quantity = int(budget / current_price)
 
     return max(1, quantity)
+
+
+def calculate_stop_loss_price(buy_price: float) -> float:
+    stop_loss_percentage = settings.get('stopLoss', 2.0)
+    return round(buy_price * (1 - stop_loss_percentage / 100), 2)
+
+
+def calculate_take_profit_price(buy_price: float) -> float:
+    take_profit_percentage = settings.get('takeProfit', 5.0)
+    return round(buy_price * (1 + take_profit_percentage / 100), 2)
+
+
+def initialize_ibkr_brokerage_session(logger: Logger) -> bool:
+    """
+    Initialize IBKR brokerage session with proper market data authentication.
+    This ensures real-time market data entitlements are properly loaded.
+    Returns True if successful, False otherwise.
+    """
+    try:
+        url = f"{IBKR_BASE_URL}iserver/auth/ssodh/init?publish=true&compete=true"
+        logger.info("Initializing IBKR brokerage session with market data authentication...")
+
+        response = post(url, verify=False)
+
+        if response.status_code == 200:
+            logger.info("✓ IBKR brokerage session initialized successfully")
+            return True
+        else:
+            logger.warning(f"IBKR session initialization returned status {response.status_code}")
+            return False
+    except Exception as e:
+        logger.error(f"Failed to initialize IBKR brokerage session: {str(e)}")
+        return False
 
 
 def load_settings() -> Dict:
@@ -325,10 +364,14 @@ def handle_buy_action(ticker: str, conid: int, current_price: float, logger: Log
 
     quantity = calculate_quantity_from_budget(current_price)
     estimated_cost = quantity * current_price
+    stop_loss_price = calculate_stop_loss_price(current_price)
+    take_profit_price = calculate_take_profit_price(current_price)
 
-    order_result = place_market_buy_order(
+    order_result = place_market_buy_order_with_stop_and_profit(
         conid=conid,
-        quantity=quantity
+        quantity=quantity,
+        stop_loss_price=stop_loss_price,
+        take_profit_price=take_profit_price
     )
 
     if order_result.get("success"):
@@ -337,9 +380,11 @@ def handle_buy_action(ticker: str, conid: int, current_price: float, logger: Log
             "buy_price": current_price,
             "buy_date": buy_date,
             "conid": conid,
-            "quantity": quantity
+            "quantity": quantity,
+            "stop_loss_price": stop_loss_price,
+            "take_profit_price": take_profit_price
         }
-        logger.info(f"BUY SUCCESS - {ticker}: {quantity} share(s) at MARKET (Est: ${estimated_cost:.2f})")
+        logger.info(f"BUY SUCCESS - {ticker}: {quantity} share(s) at MARKET (Est: ${estimated_cost:.2f}) | Stop Loss: ${stop_loss_price:.2f} | Take Profit: ${take_profit_price:.2f}")
 
         year, month, day = get_current_date()
         position_data = {
@@ -684,6 +729,32 @@ def save_closed_positions_to_file(year: int, month: int, day: int, s3_client=Non
             logger.info("No closed positions to save today")
         return True
 
+    # ...existing code...
+
+
+def save_empty_open_positions(logger: Logger, s3_client=None) -> None:
+    try:
+        year, month, day = get_current_date()
+        file_path = build_positions_file_path(year, month, day)
+
+        directory = path.dirname(file_path)
+        makedirs(directory, exist_ok=True)
+
+        empty_positions = {}
+
+        with open(file_path, 'w') as f:
+            f.write(dumps(empty_positions, indent=2))
+
+        logger.info(f"Created empty open_positions.json at {file_path}")
+
+        if s3_client:
+            if upload_position_to_s3(file_path, s3_client):
+                logger.info("Uploaded empty open_positions.json to S3")
+            else:
+                logger.error("Failed to upload empty open_positions.json to S3")
+    except Exception as e:
+        logger.error(f"Failed to save empty open_positions.json: {str(e)}")
+
     try:
         file_path = build_closed_positions_file_path(year, month, day)
 
@@ -805,6 +876,7 @@ def fetch_and_sync_positions(logger: Logger, s3_client=None) -> None:
 
     if not positions:
         log_no_positions(logger)
+        save_empty_open_positions(logger, s3_client)
         return
 
     log_positions_found(len(positions), logger)
@@ -816,7 +888,9 @@ def fetch_and_sync_positions(logger: Logger, s3_client=None) -> None:
 
 
 if __name__ == "__main__":
-    logger = setup_logging(log_file='logs/app.log', log_level=INFO)
+    current_date = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+    log_filename = f'logs/app_{current_date}.log'
+    logger = setup_logging(log_file=log_filename, log_level=INFO)
 
     s3_client = assume_iam_role(IAM_ROLE_NAME, logger)
 
@@ -829,6 +903,15 @@ if __name__ == "__main__":
     if not settings or not companies:
         logger.error("Failed to download required files. Application cannot start.")
         exit(1)
+
+    logger.info("Initializing IBKR Client Portal connection...")
+    session_initialized = initialize_ibkr_brokerage_session(logger)
+
+    if session_initialized:
+        logger.info("IBKR session ready - Real-time market data should now be available")
+    else:
+        logger.warning("IBKR session initialization had issues - You may receive delayed data (DPB)")
+        logger.warning("The application will continue, but verify market data in logs")
 
     while True:
         fetch_and_sync_positions(logger, s3_client)

@@ -118,7 +118,7 @@ def build_order_endpoint(account_id: str) -> str:
     return f"iserver/account/{account_id}/orders"
 
 
-def build_order_payload(conid: int, order_type: str, action: str, quantity: int, price: Optional[float]) -> Dict[str, Any]:
+def build_order_payload(conid: int, order_type: str, action: str, quantity: int, price: Optional[float], stop_loss_price: Optional[float] = None, take_profit_price: Optional[float] = None) -> Dict[str, Any]:
     order_data = {
         CONID_KEY: conid,
         ORDER_TYPE_KEY: order_type,
@@ -129,6 +129,12 @@ def build_order_payload(conid: int, order_type: str, action: str, quantity: int,
 
     if order_type == ORDER_TYPE_LIMIT and price is not None:
         order_data[PRICE_KEY] = float(price)
+
+    if stop_loss_price is not None:
+        order_data["auxPrice"] = float(stop_loss_price)
+
+    if take_profit_price is not None:
+        order_data["profitPrice"] = float(take_profit_price)
 
     return {ORDERS_KEY: [order_data]}
 
@@ -252,10 +258,10 @@ def confirm_order(initial_response: Any) -> tuple[bool, Optional[str]]:
     return False, "Order not placed after all confirmation rounds"
 
 
-def order_request(account_id: str, action: str, conid: int, quantity: int, order_type: str, price: Optional[float]) -> Dict[str, Any]:
+def order_request(account_id: str, action: str, conid: int, quantity: int, order_type: str, price: Optional[float], stop_loss_price: Optional[float] = None, take_profit_price: Optional[float] = None) -> Dict[str, Any]:
     try:
         url = build_url(build_order_endpoint(account_id))
-        payload = build_order_payload(conid, order_type, action, quantity, price)
+        payload = build_order_payload(conid, order_type, action, quantity, price, stop_loss_price, take_profit_price)
 
         response = post(url=url, json=payload, verify=False)
 
@@ -278,7 +284,7 @@ def order_request(account_id: str, action: str, conid: int, quantity: int, order
         return create_error_response(f"Exception: {str(e)}")
 
 
-def prepare_order(conid: int, quantity: int, account_id: Optional[str], action: str, order_type: str, price: Optional[float]) -> Dict[str, Any]:
+def prepare_order(conid: int, quantity: int, account_id: Optional[str], action: str, order_type: str, price: Optional[float], stop_loss_price: Optional[float] = None, take_profit_price: Optional[float] = None) -> Dict[str, Any]:
     account = ensure_account_id(account_id)
 
     if not account:
@@ -290,7 +296,7 @@ def prepare_order(conid: int, quantity: int, account_id: Optional[str], action: 
         error_msg = switch_result.get(ERROR_KEY, "Account switch failed")
         return create_error_response(f"Failed to switch to account {account}: {error_msg}")
 
-    return order_request(account, action, conid, quantity, order_type, price)
+    return order_request(account, action, conid, quantity, order_type, price, stop_loss_price, take_profit_price)
 
 
 def place_buy_order(conid: int, quantity: int, price: float, account_id: Optional[str] = None) -> Dict[str, Any]:
@@ -299,6 +305,14 @@ def place_buy_order(conid: int, quantity: int, price: float, account_id: Optiona
 
 def place_market_buy_order(conid: int, quantity: int, account_id: Optional[str] = None) -> Dict[str, Any]:
     return prepare_order(conid, quantity, account_id, ACTION_BUY, ORDER_TYPE_MARKET, None)
+
+
+def place_market_buy_order_with_stop_loss(conid: int, quantity: int, stop_loss_price: float, account_id: Optional[str] = None) -> Dict[str, Any]:
+    return prepare_order(conid, quantity, account_id, ACTION_BUY, ORDER_TYPE_MARKET, None, stop_loss_price)
+
+
+def place_market_buy_order_with_stop_and_profit(conid: int, quantity: int, stop_loss_price: float, take_profit_price: float, account_id: Optional[str] = None) -> Dict[str, Any]:
+    return prepare_order(conid, quantity, account_id, ACTION_BUY, ORDER_TYPE_MARKET, None, stop_loss_price, take_profit_price)
 
 
 def place_market_sell_order(conid: int, quantity: int, account_id: Optional[str] = None) -> Dict[str, Any]:
