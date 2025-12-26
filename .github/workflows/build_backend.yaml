@@ -16,6 +16,7 @@ jobs:
         run: |
           docker build --file ./lambda_get_calendar/Dockerfile ./lambda_get_calendar
           docker build --file ./lambda_get_positions/Dockerfile ./lambda_get_positions
+          docker build --file ./lambda_get_settings/Dockerfile ./lambda_get_settings
           docker build --file ./lambda_filter_info/Dockerfile ./lambda_filter_info
           docker build --file ./lambda_select_companies/Dockerfile ./lambda_select_companies
           docker build --file ./lambda_sync_storage/Dockerfile ./lambda_sync_storage
