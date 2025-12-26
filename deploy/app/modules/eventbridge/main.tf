@@ -9,19 +9,17 @@ locals {
 
 resource "aws_cloudwatch_event_rule" "filter_info" {
   name        = "${local.environment}-${local.app_name}-filter-info"
-  description = "Capture each S3 Bucket Put Object"
+  description = "Trigger Lambda when all_companies.csv is uploaded to S3"
   event_pattern = jsonencode({
-    "source": ["aws.s3"],
-    "detail-type": ["Object Created"],
-    "detail": {
-      "bucket": {
-        "name": ["${local.environment}-${local.app_name}-data-storage"]
-      },
-      "object": {
-        "key": [{
-          "prefix": "2025"
-        }, {
-          "suffix": ".csv"
+    source      = ["aws.s3"]
+    detail-type = ["Object Created"]
+    detail = {
+      bucket = {
+        name = ["${local.environment}-${local.app_name}-data-storage"]
+      }
+      object = {
+        key = [{
+          suffix = "/all_companies.csv"
         }]
       }
     }
