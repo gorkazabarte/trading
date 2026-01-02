@@ -27,3 +27,8 @@ variable "lambda_filter_info_arn" {
   description = "The ARN of the Lambda function to filter info."
   type        = string
 }
+
+variable "lambda_sync_storage_arn" {
+  description = "The ARN of the Lambda function to sync storage."
+  type        = string
+}

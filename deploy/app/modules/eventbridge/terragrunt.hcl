@@ -12,7 +12,8 @@ locals {
 }
 
 inputs = {
-  lambda_filter_info_arn = dependency.lambda.outputs.lambda_filter_info_arn
+  lambda_filter_info_arn  = dependency.lambda.outputs.lambda_filter_info_arn
+  lambda_sync_storage_arn = dependency.lambda.outputs.lambda_sync_storage_arn
 }
 
 remote_state {

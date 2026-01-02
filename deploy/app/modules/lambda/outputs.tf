@@ -73,6 +73,16 @@ output "lambda_select_companies_invoke_arn" {
   value       = module.lambda_function_select_companies.lambda_function_invoke_arn
 }
 
+output "lambda_sync_storage_arn" {
+  description = "ARN of the Lambda function for syncing storage"
+  value       = module.lambda_function_sync_storage.lambda_function_arn
+}
+
+output "lambda_sync_storage_name" {
+  description = "Name of the Lambda function for syncing storage"
+  value       = module.lambda_function_sync_storage.lambda_function_name
+}
+
 output "lambda_update_settings_arn" {
   description = "ARN of the Lambda function for updating settings"
   value       = module.lambda_function_update_settings.lambda_function_arn

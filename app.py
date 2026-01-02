@@ -14,6 +14,7 @@ from ibkr.historical_data import get_market_snapshot
 from ibkr.market_data_parser import format_market_data_log, parse_market_data
 from ibkr.order_request import place_market_sell_order, place_market_buy_order_with_stop_and_profit
 from ibkr.portfolio import format_position_summary, get_all_positions, parse_position
+from ibkr.yahoo_finance_fallback import get_current_price_with_fallback
 from logs.setup import setup_logging
 
 disable_warnings(InsecureRequestWarning)
@@ -244,19 +245,19 @@ def download_companies_list(s3_client, bucket: str, year: int, month: int, day: 
         return cached_companies
 
     try:
-        file_path = f'./files/{year}/{month}/{day}/selected_companies.txt'
+        file_path = f'./files/{year}/{month:02d}/{day:02d}/selected_companies.txt'
 
         makedirs(path.dirname(file_path), exist_ok=True)
 
-        s3_key = f'{year}/{month}/{day}/selected_companies.txt'
+        s3_key = f'{year}/{month:02d}/{day:02d}/selected_companies.txt'
         s3_client.download_file(bucket, s3_key, file_path)
         with open(file_path, 'r') as f:
             cached_companies = f.read().splitlines()
         logger.info(f"Downloaded companies list from S3: {len(cached_companies)} companies")
         return cached_companies
     except Exception as e:
-        logger.error(f"Companies were not selected for {year}/{month}/{day}. Error: {str(e)}")
-        logger.error(f"Expected S3 location: s3://{bucket}/{year}/{month}/{day}/selected_companies.txt")
+        logger.error(f"Companies were not selected for {year}/{month:02d}/{day:02d}. Error: {str(e)}")
+        logger.error(f"Expected S3 location: s3://{bucket}/{year}/{month:02d}/{day:02d}/selected_companies.txt")
         return None
 
 
@@ -320,6 +321,28 @@ def fetch_and_parse_market_data(ticker: str, logger: Logger) -> Optional[Dict]:
 
         market_data = snapshot[0]
         parsed_data = parse_market_data(market_data)
+
+        # Check if IBKR returned DPB and use Yahoo Finance fallback for current price
+        exchange_code = parsed_data.get('exchange_code', '')
+        if exchange_code == 'DPB':
+            ibkr_price = float(parsed_data.get('last_price', 0)) if parsed_data.get('last_price') else None
+            yahoo_price, source = get_current_price_with_fallback(ticker, ibkr_price, exchange_code)
+
+            if yahoo_price and source == 'Yahoo Finance':
+                logger.info(f"{ticker} - Using Yahoo Finance price: ${yahoo_price:.2f} (IBKR returned DPB)")
+                parsed_data['last_price'] = str(yahoo_price)
+                parsed_data['data_source'] = 'Yahoo Finance'
+
+                # Recalculate change from close with Yahoo price
+                if parsed_data.get('closing_price'):
+                    closing_price = float(parsed_data['closing_price'])
+                    parsed_data['price_difference_from_close'] = round(yahoo_price - closing_price, 2)
+                    parsed_data['price_change_from_close_pct'] = round(((yahoo_price - closing_price) / closing_price) * 100, 2)
+            else:
+                parsed_data['data_source'] = 'IBKR (Delayed)'
+        else:
+            parsed_data['data_source'] = 'IBKR'
+
         logger.info(format_market_data_log(ticker, parsed_data))
 
         return parsed_data
@@ -609,8 +632,8 @@ def should_preserve_existing_closing_price(existing_closing_price: Optional[str]
 def evaluate_trading_opportunity(ticker: str, current_price: float, closing_price: float, conid: int, logger: Logger) -> None:
     price_change_pct = calculate_price_change_percentage(current_price, closing_price)
 
-    if is_price_below_close(price_change_pct):
-        log_price_below_close(ticker, current_price, closing_price, price_change_pct, logger)
+    if is_price_below_last_close(price_change_pct):
+        log_price_below_last_close(ticker, current_price, closing_price, price_change_pct, logger)
     elif is_price_above_threshold(price_change_pct):
         log_price_too_high(ticker, current_price, closing_price, price_change_pct, logger)
     elif is_within_buy_range(price_change_pct):
@@ -633,7 +656,7 @@ def is_price_above_threshold(price_change_pct: float) -> bool:
     return price_change_pct >= 1.0
 
 
-def is_price_below_close(price_change_pct: float) -> bool:
+def is_price_below_last_close(price_change_pct: float) -> bool:
     return price_change_pct < 0
 
 
@@ -647,9 +670,9 @@ def log_buy_opportunity(ticker: str, current_price: float, closing_price: float,
     handle_buy_action(ticker, conid, current_price, logger)
 
 
-def log_price_below_close(ticker: str, current_price: float, closing_price: float, price_change_pct: float, logger: Logger) -> None:
+def log_price_below_last_close(ticker: str, current_price: float, closing_price: float, price_change_pct: float, logger: Logger) -> None:
     buy_range = format_buy_range(closing_price)
-    logger.info(f"BELOW CLOSE - {ticker}: Current ${current_price:.2f} | Close ${closing_price:.2f} {buy_range} | Change {price_change_pct:.2f}% | Action: WAIT")
+    logger.info(f"BELOW THRESHOLD - {ticker}: Current ${current_price:.2f} | Close ${closing_price:.2f} {buy_range} | Change {price_change_pct:.2f}% | Action: WAIT")
 
 
 def log_price_too_high(ticker: str, current_price: float, closing_price: float, price_change_pct: float, logger: Logger) -> None:
@@ -706,11 +729,16 @@ def load_positions_from_file(file_path: str) -> Dict:
 
 
 def upload_position_to_s3(file_path: str, s3_client) -> bool:
+    from os import path
+    if not path.exists(file_path):
+        print(f"ERROR: Local file {file_path} does not exist. Cannot upload to S3.")
+        return False
     try:
         s3_key = "open_positions.json"
         s3_client.upload_file(file_path, S3_BUCKET, s3_key)
         return True
-    except Exception:
+    except Exception as e:
+        print(f"ERROR: Failed to upload {file_path} to S3: {e}")
         return False
 
 
@@ -889,7 +917,7 @@ def fetch_and_sync_positions(logger: Logger, s3_client=None) -> None:
 
 if __name__ == "__main__":
     current_date = datetime.now(timezone.utc).strftime('%Y-%m-%d')
-    log_filename = f'logs/app_{current_date}.log'
+    log_filename = f'logs/{current_date}.log'
     logger = setup_logging(log_file=log_filename, log_level=INFO)
 
     s3_client = assume_iam_role(IAM_ROLE_NAME, logger)

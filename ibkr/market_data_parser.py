@@ -47,7 +47,6 @@ def has_opening_price_prefix(price_str: str) -> bool:
 def parse_price_with_prefix(price_str, result: dict) -> None:
     if has_closing_price_prefix(price_str):
         result['price_type'] = 'Closing Price'
-        result['is_market_closed'] = True
         result['last_price'] = price_str[1:]
     elif has_opening_price_prefix(price_str):
         result['price_type'] = 'Opening Price'

@@ -1,10 +1,11 @@
 locals {
-  app_name               = var.app_name
-  app_version            = var.app_version
-  aws_account_id         = var.aws_account_id
-  aws_region             = var.aws_region
-  environment            = var.environment
-  lambda_filter_info_arn = var.lambda_filter_info_arn
+  app_name                = var.app_name
+  app_version             = var.app_version
+  aws_account_id          = var.aws_account_id
+  aws_region              = var.aws_region
+  environment             = var.environment
+  lambda_filter_info_arn  = var.lambda_filter_info_arn
+  lambda_sync_storage_arn = var.lambda_sync_storage_arn
 }
 
 resource "aws_cloudwatch_event_rule" "filter_info" {
@@ -75,4 +76,19 @@ resource "aws_cloudwatch_event_target" "filter_info" {
 }
 EOF
   }
+}
+
+resource "aws_scheduler_schedule" "sync_storage_daily" {
+  name                = "${local.environment}-${local.app_name}-sync-storage-daily"
+  description         = "Trigger Lambda sync storage once a day at 07:00 AM Madrid time"
+  schedule_expression = "cron(0 6 * * ? *)" # 06:00 UTC = 07:00 Europe/Madrid (CET, no DST)
+  flexible_time_window {
+    mode = "OFF"
+  }
+  target {
+    arn      = local.lambda_sync_storage_arn
+    role_arn = aws_iam_role.eventbridge_invoke_lambda.arn
+    input    = jsonencode({})
+  }
+  schedule_expression_timezone = "Europe/Madrid"
 }
