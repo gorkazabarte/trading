@@ -166,7 +166,7 @@ def create_company_data(ticker: str, parsed_data: Dict, closing_price: Optional[
 
 
 def create_directories(year: int, month: int, day: int) -> str:
-    market_data_dir = f'./files/{year}/{month}/{day}'
+    market_data_dir = f'./files/{year}/{month:02d}/{day:02d}'
     makedirs(market_data_dir, exist_ok=True)
     makedirs('./files', exist_ok=True)
     return market_data_dir
@@ -695,11 +695,11 @@ def add_position_to_tracking(ticker: str, conid: int, quantity: int, avg_price: 
 
 
 def build_positions_file_path(year: int, month: int, day: int) -> str:
-    return f"./files/{year}/{month}/{day}/open_positions.json"
+    return f"./files/{year}/{month:02d}/{day:02d}/open_positions.json"
 
 
 def build_closed_positions_file_path(year: int, month: int, day: int) -> str:
-    return f"./files/{year}/{month}/{day}/closed_positions.json"
+    return f"./files/{year}/{month:02d}/{day:02d}/closed_positions.json"
 
 
 def create_closed_position_entry(ticker: str, buy_date: str, buy_price: float, sell_price: float, quantity: int) -> Dict:
