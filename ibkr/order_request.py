@@ -1,5 +1,6 @@
 from typing import Optional, Dict, Any
 from requests import Response, get, post
+from datetime import datetime
 
 from urllib3 import disable_warnings
 from urllib3.exceptions import InsecureRequestWarning
@@ -321,3 +322,62 @@ def place_market_sell_order(conid: int, quantity: int, account_id: Optional[str]
 
 def place_sell_order(conid: int, quantity: int, price: float, account_id: Optional[str] = None) -> Dict[str, Any]:
     return prepare_order(conid, quantity, account_id, ACTION_SELL, ORDER_TYPE_LIMIT, price)
+
+
+def place_bracket_order(conid: int, quantity: int, stop_loss_price: float, take_profit_price: float, account_id: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Place a bracket order: market buy, stop loss, and take profit as OCA group.
+    """
+    account = ensure_account_id(account_id)
+    if not account:
+        return create_error_response("Unable to fetch account ID")
+    switch_result = switch_account(account)
+    if not switch_result.get(SUCCESS_KEY):
+        error_msg = switch_result.get(ERROR_KEY, "Account switch failed")
+        return create_error_response(f"Failed to switch to account {account}: {error_msg}")
+
+    oca_group = f"oca-{conid}-{int(datetime.now().timestamp())}"
+    # Parent: Market Buy
+    parent_order = {
+        CONID_KEY: conid,
+        ORDER_TYPE_KEY: ORDER_TYPE_MARKET,
+        SIDE_KEY: ACTION_BUY,
+        TIF_KEY: TIME_IN_FORCE_DAY,
+        QUANTITY_KEY: quantity,
+        "isParent": True
+    }
+    # Child: Stop Loss
+    stop_loss_order = {
+        CONID_KEY: conid,
+        ORDER_TYPE_KEY: "STP",
+        SIDE_KEY: ACTION_SELL,
+        TIF_KEY: TIME_IN_FORCE_DAY,
+        QUANTITY_KEY: quantity,
+        "parentId": 0,
+        "ocaGroup": oca_group,
+        "auxPrice": float(stop_loss_price)
+    }
+    # Child: Take Profit
+    take_profit_order = {
+        CONID_KEY: conid,
+        ORDER_TYPE_KEY: "LMT",
+        SIDE_KEY: ACTION_SELL,
+        TIF_KEY: TIME_IN_FORCE_DAY,
+        QUANTITY_KEY: quantity,
+        "parentId": 0,
+        "ocaGroup": oca_group,
+        "price": float(take_profit_price)
+    }
+    payload = {ORDERS_KEY: [parent_order, stop_loss_order, take_profit_order]}
+    url = build_url(build_order_endpoint(account))
+    response = post(url=url, json=payload, verify=False)
+    if not is_successful_response(response):
+        return handle_http_error(response.status_code, response.text)
+    try:
+        order_json = response.json()
+    except Exception as json_error:
+        return handle_json_parse_error(json_error, response.text, response.status_code)
+    success, error_message = confirm_order(order_json)
+    if success:
+        return create_success_response(initial_response=order_json)
+    return create_error_response(error_message if error_message else "Order confirmation failed")

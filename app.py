@@ -5,21 +5,23 @@ from os import makedirs, path
 from typing import Dict, List, Optional
 
 from boto3 import client
-from requests import post, get
+from requests import post
 from urllib3 import disable_warnings
 from urllib3.exceptions import InsecureRequestWarning
 
 from ibkr.contract_details import contract_search
 from ibkr.historical_data import get_market_snapshot
 from ibkr.market_data_parser import format_market_data_log, parse_market_data
-from ibkr.order_request import place_market_sell_order, place_market_buy_order_with_stop_and_profit
+from ibkr.order_request import place_market_sell_order, place_bracket_order
 from ibkr.portfolio import format_position_summary, get_all_positions, parse_position
 from ibkr.yahoo_finance_fallback import get_current_price_with_fallback
 from logs.setup import setup_logging
 
 disable_warnings(InsecureRequestWarning)
 
-MARKET_CLOSE_TIME = time(16, 0)
+MARKET_CLOSE_HOUR = 16
+MARKET_CLOSE_MINUTE = 0
+MARKET_CLOSE_TIME = time(MARKET_CLOSE_HOUR, MARKET_CLOSE_MINUTE)
 MINUTES_BEFORE_CLOSE_TO_SELL = 10
 S3_BUCKET = 'dev-trading-data-storage'
 SETTINGS_FILE_PATH = 'files/settings.json'
@@ -390,7 +392,7 @@ def handle_buy_action(ticker: str, conid: int, current_price: float, logger: Log
     stop_loss_price = calculate_stop_loss_price(current_price)
     take_profit_price = calculate_take_profit_price(current_price)
 
-    order_result = place_market_buy_order_with_stop_and_profit(
+    order_result = place_bracket_order(
         conid=conid,
         quantity=quantity,
         stop_loss_price=stop_loss_price,
@@ -588,23 +590,19 @@ def save_company_data(file_path: str, company_data: Dict, logger: Logger, ticker
 
 def sell_at_market_price(ticker: str, logger: Logger, current_price: Optional[float] = None) -> None:
     position = bought_shares_today.get(ticker)
-
     if not position:
+        logger.info(f"SELL SKIPPED - {ticker}: No open position to sell.")
         return
-
     buy_price = position.get("buy_price")
     buy_date = position.get("buy_date", get_current_date_string())
     conid = position.get("conid")
     quantity = position.get("quantity", 1)
-
     order_result = place_market_sell_order(
         conid=conid,
         quantity=quantity
     )
-
     if order_result.get("success"):
         sell_price = current_price if current_price else buy_price
-
         closed_position = create_closed_position_entry(
             ticker=ticker,
             buy_date=buy_date,
@@ -613,7 +611,6 @@ def sell_at_market_price(ticker: str, logger: Logger, current_price: Optional[fl
             quantity=quantity
         )
         closed_positions_today.append(closed_position)
-
         bought_shares_today.pop(ticker, None)
         logger.info(f"SELL SUCCESS - {ticker}: {quantity} share(s) at MARKET (bought at ${buy_price:.2f}) | P/L: ${closed_position['profit']:.2f} ({closed_position['return_pct']:.2f}%)")
     else:
@@ -661,7 +658,7 @@ def is_price_below_last_close(price_change_pct: float) -> bool:
 
 
 def is_within_buy_range(price_change_pct: float) -> bool:
-    return 0.8 <= price_change_pct <= 0.95
+    return 0.6 <= price_change_pct <= 0.9
 
 
 def log_buy_opportunity(ticker: str, current_price: float, closing_price: float, price_change_pct: float, conid: int, logger: Logger) -> None:
@@ -751,13 +748,37 @@ def upload_closed_positions_to_s3(file_path: str, year: int, month: int, day: in
         return False
 
 
-def save_closed_positions_to_file(year: int, month: int, day: int, s3_client=None, logger: Logger = None) -> bool:
+def save_closed_positions_to_file(year: int, month: int, day: int, s3_client=None, logger: Logger = None) -> None:
     if len(closed_positions_today) == 0:
         if logger:
             logger.info("No closed positions to save today")
-        return True
+        return
 
-    # ...existing code...
+    try:
+        file_path = build_closed_positions_file_path(year, month, day)
+
+        closed_positions_data = {
+            "date": f"{year}-{month:02d}-{day:02d}",
+            "total_positions": len(closed_positions_today),
+            "total_profit": round(sum(p["profit"] for p in closed_positions_today), 2),
+            "positions": closed_positions_today
+        }
+
+        with open(file_path, 'w') as f:
+            f.write(dumps(closed_positions_data, indent=2))
+
+        if logger:
+            logger.info(f"Saved {len(closed_positions_today)} closed position(s) to: {file_path}")
+            logger.info(f"Total P/L for the day: ${closed_positions_data['total_profit']:.2f}")
+
+        if s3_client:
+            upload_closed_positions_to_s3(file_path, year, month, day, s3_client)
+            if logger:
+                logger.info(f"Closed positions uploaded to S3: s3://{S3_BUCKET}/{year}/{month}/{day}/closed_positions.json")
+
+    except Exception as e:
+        if logger:
+            logger.error(f"Failed to save closed positions: {e}")
 
 
 def save_empty_open_positions(logger: Logger, s3_client=None) -> None:
@@ -784,6 +805,7 @@ def save_empty_open_positions(logger: Logger, s3_client=None) -> None:
         logger.error(f"Failed to save empty open_positions.json: {str(e)}")
 
     try:
+        year, month, day = get_current_date()
         file_path = build_closed_positions_file_path(year, month, day)
 
         closed_positions_data = {
@@ -804,12 +826,9 @@ def save_empty_open_positions(logger: Logger, s3_client=None) -> None:
             upload_closed_positions_to_s3(file_path, year, month, day, s3_client)
             if logger:
                 logger.info(f"Closed positions uploaded to S3: s3://{S3_BUCKET}/{year}/{month}/{day}/closed_positions.json")
-
-        return True
     except Exception as e:
         if logger:
             logger.error(f"Failed to save closed positions: {e}")
-        return False
 
 
 def save_position_to_file(ticker: str, position_data: Dict, year: int, month: int, day: int, s3_client=None) -> bool:
@@ -915,6 +934,11 @@ def fetch_and_sync_positions(logger: Logger, s3_client=None) -> None:
     log_sync_complete(len(bought_shares_today), logger)
 
 
+def should_exit_at_market_close():
+    now = datetime.now()
+    return now.hour > MARKET_CLOSE_HOUR or (now.hour == MARKET_CLOSE_HOUR and now.minute >= MARKET_CLOSE_MINUTE)
+
+
 if __name__ == "__main__":
     current_date = datetime.now(timezone.utc).strftime('%Y-%m-%d')
     log_filename = f'logs/{current_date}.log'
@@ -954,3 +978,7 @@ if __name__ == "__main__":
                 save_closed_positions_to_file(year, month, day, s3_client, logger)
 
             log_positions_summary(market_data_by_ticker, logger)
+
+        if should_exit_at_market_close():
+            logger.info("Reached market close. Exiting program with status 0.")
+            exit(0)
