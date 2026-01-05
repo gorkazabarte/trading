@@ -2,7 +2,7 @@
 
 echo "Starting Trading App with TWS..."
 
-export IB_USE_TWS=true
+export IB_USE_TWS=false
 
 echo "Configuration: IB_USE_TWS=$IB_USE_TWS"
 
