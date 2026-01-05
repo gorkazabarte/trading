@@ -1,8 +1,10 @@
 #!/bin/bash
 
+cd "${HOME}/App/trading" || exit 1
 echo "Starting Trading App with TWS..."
 
 export IB_USE_TWS=false
+export APP_PATH="${HOME}/App/trading"
 
 echo "Configuration: IB_USE_TWS=$IB_USE_TWS"
 
@@ -13,4 +15,4 @@ else
 fi
 
 echo "Starting app..."
-python app.py
+python "${APP_PATH}/app.py"
