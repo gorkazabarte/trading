@@ -1,5 +1,6 @@
 botocore==1.40.72
 boto3==1.40.72
+ib_insync==0.9.86
 requests==2.32.5
 urllib3==2.6.2
 yfinance==1.0

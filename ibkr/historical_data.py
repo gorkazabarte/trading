@@ -7,7 +7,9 @@ from urllib3.exceptions import InsecureRequestWarning
 disable_warnings(InsecureRequestWarning)
 
 BASE_URL = "https://localhost:5001/v1/api/"
-SUBSCRIPTION_WAIT_SECONDS = 1
+SUBSCRIPTION_WAIT_SECONDS = 2
+
+_subscribed_conids = set()
 
 
 def build_query_params(**params) -> str:
@@ -73,7 +75,14 @@ def subscribe_to_market_data(conid: int, fields: str = "31,82,83,84,86,87"):
     """
     Step 1: Subscribe to market data to get real-time prices.
     This is required before polling the snapshot endpoint.
+    Only subscribes once per conid.
     """
+    global _subscribed_conids
+
+    if conid in _subscribed_conids:
+        print(f"DEBUG: conid {conid} already subscribed, skipping")
+        return {"status": "already_subscribed"}
+
     endpoint = "iserver/marketdata/subscribe"
 
     fields_list = fields.split(',')
@@ -82,11 +91,17 @@ def subscribe_to_market_data(conid: int, fields: str = "31,82,83,84,86,87"):
         "fields": fields_list
     }
 
+    print(f"DEBUG: Subscribing to market data for conid {conid} with fields {fields_list}")
     contract_req = post(f"{BASE_URL}{endpoint}", json=json_body, verify=False)
 
     if contract_req.status_code == 200:
-        return contract_req.json()
+        response = contract_req.json()
+        print(f"DEBUG: Subscription response for conid {conid}: {response}")
+        _subscribed_conids.add(conid)
+        return response
     else:
+        print(f"DEBUG: Subscription failed for conid {conid}: {contract_req.status_code} - {contract_req.text}")
+        _subscribed_conids.add(conid)
         raise Exception(f"Error subscribing to market data: {contract_req.status_code}, Response text: {contract_req.text}")
 
 
@@ -97,9 +112,13 @@ def get_market_snapshot(conid: int, fields: str = "31,82,83,84,86,87"):
     """
     endpoint = "iserver/marketdata/snapshot"
 
+    # Step 1: Ensure subscription (only happens once per conid)
+    is_new_subscription = conid not in _subscribed_conids
+
     try:
-        subscribe_to_market_data(conid, fields)
-        sleep(SUBSCRIPTION_WAIT_SECONDS)
+        result = subscribe_to_market_data(conid, fields)
+        if is_new_subscription:
+            sleep(SUBSCRIPTION_WAIT_SECONDS)
     except Exception as e:
         pass
 

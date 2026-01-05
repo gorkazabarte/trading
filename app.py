@@ -9,16 +9,14 @@ from requests import post
 from urllib3 import disable_warnings
 from urllib3.exceptions import InsecureRequestWarning
 
-from ibkr.contract_details import contract_search
-from ibkr.historical_data import get_market_snapshot
-from ibkr.market_data_parser import format_market_data_log, parse_market_data
-from ibkr.order_request import place_market_sell_order, place_bracket_order
-from ibkr.portfolio import format_position_summary, get_all_positions, parse_position
-from ibkr.yahoo_finance_fallback import get_current_price_with_fallback
+from ibkr.ib_gateway_client import get_ib_client, disconnect_ib_client
+from ibkr.portfolio import format_position_summary, parse_position
 from logs.setup import setup_logging
 
 disable_warnings(InsecureRequestWarning)
 
+MARKET_OPEN_HOUR = 9
+MARKET_OPEN_MINUTE = 30
 MARKET_CLOSE_HOUR = 16
 MARKET_CLOSE_MINUTE = 0
 MARKET_CLOSE_TIME = time(MARKET_CLOSE_HOUR, MARKET_CLOSE_MINUTE)
@@ -312,47 +310,71 @@ def download_daily_files(s3_client, bucket: str, year: int, month: int, day: int
 
 
 def fetch_and_parse_market_data(ticker: str, logger: Logger) -> Optional[Dict]:
+    """Fetch market data using IB Gateway for real-time prices"""
     try:
-        conid = contract_search(ticker)
-        logger.info(f"Contract ID for {ticker}: {conid}")
+        ib_client = get_ib_client()
 
-        snapshot = get_market_snapshot(int(conid))
-
-        if not is_valid_snapshot(snapshot):
-            logger.warning(f"{ticker} - Empty or invalid snapshot response")
+        if not ib_client.connected:
+            logger.error(f"{ticker} - IB Gateway not connected")
             return None
 
-        market_data = snapshot[0]
-        parsed_data = parse_market_data(market_data)
+        market_data = ib_client.get_market_data(ticker)
 
-        # Check if IBKR returned DPB and use Yahoo Finance fallback for current price
-        exchange_code = parsed_data.get('exchange_code', '')
-        if exchange_code == 'DPB':
-            ibkr_price = float(parsed_data.get('last_price', 0)) if parsed_data.get('last_price') else None
-            yahoo_price, source = get_current_price_with_fallback(ticker, ibkr_price, exchange_code)
+        if not market_data:
+            logger.warning(f"{ticker} - No market data received (may need subscription)")
+            return None
 
-            if yahoo_price and source == 'Yahoo Finance':
-                logger.info(f"{ticker} - Using Yahoo Finance price: ${yahoo_price:.2f} (IBKR returned DPB)")
-                parsed_data['last_price'] = str(yahoo_price)
-                parsed_data['data_source'] = 'Yahoo Finance'
+        last_price = market_data.get('last_price')
+        bid_price = market_data.get('bid_price')
+        ask_price = market_data.get('ask_price')
+        volume = market_data.get('volume', 0)
 
-                # Recalculate change from close with Yahoo price
-                if parsed_data.get('closing_price'):
-                    closing_price = float(parsed_data['closing_price'])
-                    parsed_data['price_difference_from_close'] = round(yahoo_price - closing_price, 2)
-                    parsed_data['price_change_from_close_pct'] = round(((yahoo_price - closing_price) / closing_price) * 100, 2)
-            else:
-                parsed_data['data_source'] = 'IBKR (Delayed)'
+        if last_price is None and bid_price is None and ask_price is None:
+            logger.warning(f"{ticker} - No price data available (delayed data or subscription needed)")
+            return None
+
+        spread = 0
+        spread_percent = 0
+        if bid_price and ask_price and last_price:
+            spread = ask_price - bid_price
+            spread_percent = (spread / last_price * 100) if last_price > 0 else 0
+
+        parsed_data = {
+            'ticker': ticker,
+            'conid': market_data.get('conid'),
+            'last_price': str(last_price) if last_price is not None else None,
+            'bid_price': str(bid_price) if bid_price is not None else None,
+            'ask_price': str(ask_price) if ask_price is not None else None,
+            'volume': f"{volume/1000:.2f}K" if volume >= 1000 else str(volume),
+            'volume_raw': volume,
+            'spread': round(spread, 4) if spread else None,
+            'spread_percent': round(spread_percent, 2) if spread_percent else None,
+            'closing_price': str(market_data.get('close_price')) if market_data.get('close_price') else None,
+            'previous_close': str(market_data.get('close_price')) if market_data.get('close_price') else None,
+            'is_market_closed': not is_market_hours_now(),
+            'price_type': 'Last Trade',
+            'exchange_code': market_data.get('exchange', ''),
+            'data_source': 'IB Gateway'
+        }
+
+        if last_price and bid_price and ask_price:
+            logger.info(f"{ticker} - Price: ${last_price:.2f}, Bid: ${bid_price:.2f}, Ask: ${ask_price:.2f}, Spread: {spread_percent:.2f}%")
         else:
-            parsed_data['data_source'] = 'IBKR'
-
-        logger.info(format_market_data_log(ticker, parsed_data))
+            logger.info(f"{ticker} - Limited data: Last=${last_price}, Bid=${bid_price}, Ask=${ask_price}")
 
         return parsed_data
 
     except Exception as e:
         logger.error(f"{ticker} - Error fetching market data: {e}")
         return None
+
+
+def is_market_hours_now() -> bool:
+    """Check if current time is within market hours (9:30 AM - 4:00 PM ET)"""
+    current_time = get_current_eastern_time()
+    market_open = time(MARKET_OPEN_HOUR, MARKET_OPEN_MINUTE)
+    market_close = time(MARKET_CLOSE_HOUR, MARKET_CLOSE_MINUTE)
+    return market_open <= current_time <= market_close
 
 
 def get_current_eastern_time() -> time:
@@ -393,8 +415,10 @@ def handle_buy_action(ticker: str, conid: int, current_price: float, logger: Log
     stop_loss_price = calculate_stop_loss_price(current_price)
     take_profit_price = calculate_take_profit_price(current_price)
 
-    order_result = place_bracket_order(
-        conid=conid,
+    # Use IB Gateway to place bracket order
+    ib_client = get_ib_client()
+    order_result = ib_client.place_bracket_order(
+        ticker=ticker,
         quantity=quantity,
         stop_loss_price=stop_loss_price,
         take_profit_price=take_profit_price
@@ -550,12 +574,10 @@ def process_company(ticker: str, market_data_dir: str, year: int, month: int, da
     if parsed_data is None:
         return None
 
-    # Always update bid/ask price and spread in TICKER.json
     file_path = f"{market_data_dir}/{ticker}.json"
     existing_closing_price = get_existing_closing_price(file_path, logger)
     closing_price = determine_closing_price(parsed_data, existing_closing_price, logger, ticker)
 
-    # Calculate spread and spread percentage
     try:
         bid = float(parsed_data.get('bid_price', 0) or 0)
         ask = float(parsed_data.get('ask_price', 0) or 0)
@@ -568,7 +590,6 @@ def process_company(ticker: str, market_data_dir: str, year: int, month: int, da
         parsed_data['spread'] = None
         parsed_data['spread_percent'] = None
 
-    # Only buy if spread percent is less than 0.5%
     if parsed_data['spread_percent'] is not None and parsed_data['spread_percent'] < 0.5:
         evaluate_and_log_trading_opportunity(ticker, parsed_data, closing_price, logger)
     else:
@@ -615,10 +636,15 @@ def sell_at_market_price(ticker: str, logger: Logger, current_price: Optional[fl
     buy_date = position.get("buy_date", get_current_date_string())
     conid = position.get("conid")
     quantity = position.get("quantity", 1)
-    order_result = place_market_sell_order(
-        conid=conid,
-        quantity=quantity
+
+    # Use IB Gateway to place market sell order
+    ib_client = get_ib_client()
+    order_result = ib_client.place_market_order(
+        ticker=ticker,
+        quantity=quantity,
+        action='SELL'
     )
+
     if order_result.get("success"):
         sell_price = current_price if current_price else buy_price
         closed_position = create_closed_position_entry(
@@ -931,13 +957,14 @@ def sync_position(position_data: Dict, logger: Logger, s3_client=None) -> bool:
 def fetch_and_sync_positions(logger: Logger, s3_client=None) -> None:
     log_sync_start(logger)
 
-    result = get_all_positions()
+    # Use IB Gateway to get positions
+    ib_client = get_ib_client()
 
-    if not result.get("success"):
-        log_fetch_error(result.get('error', 'Unknown error'), logger)
+    if not ib_client.connected:
+        logger.error("IB Gateway not connected - cannot fetch positions")
         return
 
-    positions = result.get("positions", [])
+    positions = ib_client.get_positions()
 
     if not positions:
         log_no_positions(logger)
@@ -947,14 +974,34 @@ def fetch_and_sync_positions(logger: Logger, s3_client=None) -> None:
     log_positions_found(len(positions), logger)
 
     for position_data in positions:
-        sync_position(position_data, logger, s3_client)
+        ticker = position_data.get('ticker')
+        conid = position_data.get('conid')
+        quantity = position_data.get('position')
+        avg_price = position_data.get('average_price')
+
+        if not all([ticker, conid, quantity, avg_price]):
+            continue
+
+        buy_date = get_current_date_string()
+        add_position_to_tracking(ticker, conid, int(quantity), avg_price, buy_date)
+
+        # Format for logging
+        market_price = position_data.get('market_price', avg_price)
+        market_value = position_data.get('market_value', 0)
+        unrealized_pnl = position_data.get('unrealized_pnl', 0)
+
+        logger.info(f"  - {ticker}: {quantity} shares @ ${avg_price:.2f} | Market: ${market_price:.2f} | P/L: ${unrealized_pnl:.2f}")
+
+        year, month, day = get_current_date()
+        save_position_to_file(ticker, position_data, year, month, day, s3_client)
 
     log_sync_complete(len(bought_shares_today), logger)
 
 
 def should_exit_at_market_close():
-    now = datetime.now()
-    return now.hour > MARKET_CLOSE_HOUR or (now.hour == MARKET_CLOSE_HOUR and now.minute >= MARKET_CLOSE_MINUTE)
+    """Exit after market close (after 4:00 PM ET)"""
+    current_time = get_current_eastern_time()
+    return current_time > MARKET_CLOSE_TIME
 
 
 if __name__ == "__main__":
@@ -972,29 +1019,39 @@ if __name__ == "__main__":
         logger.error("Failed to download required files. Application cannot start.")
         exit(1)
 
-    logger.info("Initializing IBKR Client Portal connection...")
-    session_initialized = initialize_ibkr_brokerage_session(logger)
+    logger.info("Connecting to IB Gateway for real-time market data...")
+    ib_client = get_ib_client()
 
-    if session_initialized:
-        logger.info("IBKR session ready - Real-time market data should now be available")
+    if ib_client.connected:
+        logger.info("IB Gateway connected - Real-time market data is available")
     else:
-        logger.warning("IBKR session initialization had issues - You may receive delayed data (DPB)")
-        logger.warning("The application will continue, but verify market data in logs")
+        logger.error("Failed to connect to IB Gateway. Make sure IB Gateway is running on port 4001.")
+        exit(1)
 
-    while True:
-        fetch_and_sync_positions(logger, s3_client)
+    try:
+        while True:
+            fetch_and_sync_positions(logger, s3_client)
 
-        market_data_by_ticker = run_market_data_collection_cycle(s3_client, logger)
+            market_data_by_ticker = run_market_data_collection_cycle(s3_client, logger)
 
-        if market_data_by_ticker is not None:
-            handle_end_of_day_sales(logger)
+            if market_data_by_ticker is not None:
+                handle_end_of_day_sales(logger)
 
-            if is_close_to_market_close() and len(closed_positions_today) > 0:
-                year, month, day = get_current_date()
-                save_closed_positions_to_file(year, month, day, s3_client, logger)
+                if is_close_to_market_close() and len(closed_positions_today) > 0:
+                    year, month, day = get_current_date()
+                    save_closed_positions_to_file(year, month, day, s3_client, logger)
 
-            log_positions_summary(market_data_by_ticker, logger)
+                log_positions_summary(market_data_by_ticker, logger)
 
-        if should_exit_at_market_close():
-            logger.info("Reached market close. Exiting program with status 0.")
-            exit(0)
+            if should_exit_at_market_close():
+                logger.info("Market is closed. Exiting program with status 0.")
+                disconnect_ib_client()
+                exit(0)
+    except KeyboardInterrupt:
+        logger.info("Program interrupted by user. Cleaning up...")
+        disconnect_ib_client()
+        exit(0)
+    except Exception as e:
+        logger.error(f"Unexpected error: {e}")
+        disconnect_ib_client()
+        exit(1)
