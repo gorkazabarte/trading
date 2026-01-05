@@ -1,8 +1,4 @@
 from requests import get
-
-# Disable SSL Warnings - Insecure connection is between you and the localhost.
-# You may replace the SSL certificate in /root/conf.yaml and
-# modify sslCert and sslPwd fields to use secure connection.
 from urllib3 import disable_warnings
 from urllib3.exceptions import InsecureRequestWarning
 

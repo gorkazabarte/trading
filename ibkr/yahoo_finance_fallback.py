@@ -1,11 +1,6 @@
-"""
-Yahoo Finance API wrapper for real-time current price
-Used as fallback when IBKR returns delayed data (DPB)
-"""
-
-import yfinance as yf
 from typing import Optional
 
+import yfinance as yf
 
 def get_current_price_from_yahoo(ticker: str) -> Optional[float]:
     """

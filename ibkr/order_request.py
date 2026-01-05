@@ -1,7 +1,7 @@
-from typing import Optional, Dict, Any
-from requests import Response, get, post
 from datetime import datetime
+from typing import Optional, Dict, Any
 
+from requests import Response, get, post
 from urllib3 import disable_warnings
 from urllib3.exceptions import InsecureRequestWarning
 

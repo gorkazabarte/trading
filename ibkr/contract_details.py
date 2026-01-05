@@ -1,4 +1,5 @@
 from typing import Optional
+
 from requests import post
 from urllib3 import disable_warnings
 from urllib3.exceptions import InsecureRequestWarning
