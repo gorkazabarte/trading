@@ -25,7 +25,6 @@ MARKET_CLOSE_TIME = time(MARKET_CLOSE_HOUR, MARKET_CLOSE_MINUTE)
 MINUTES_BEFORE_CLOSE_TO_SELL = 10
 S3_BUCKET = 'dev-trading-data-storage'
 SETTINGS_FILE_PATH = 'files/settings.json'
-UPDATE_INTERVAL = 0
 IAM_ROLE_NAME = 'dev-trading-admin'
 IBKR_BASE_URL = "https://localhost:5001/v1/api/"
 
@@ -587,7 +586,6 @@ def run_market_data_collection_cycle(s3_client, logger: Logger) -> Optional[Dict
     year, month, day = get_current_date()
     market_data_dir = create_directories(year, month, day)
 
-    # Use cached values if available, otherwise return None
     if not daily_files_downloaded or cached_settings is None or cached_companies is None:
         logger.warning("Daily files not yet downloaded - skipping market data collection")
         return None
@@ -965,9 +963,7 @@ if __name__ == "__main__":
     logger = setup_logging(log_file=log_filename, log_level=INFO)
 
     s3_client = assume_iam_role(IAM_ROLE_NAME, logger)
-
     logger.info("Trading application has started successfully.")
-    logger.info(f"Market data will update every {UPDATE_INTERVAL} seconds")
 
     year, month, day = get_current_date()
     settings, companies = download_daily_files(s3_client, S3_BUCKET, year, month, day, logger)

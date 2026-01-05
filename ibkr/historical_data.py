@@ -69,8 +69,39 @@ def try_post_fallback(endpoint: str, conid: int, fields: str):
         raise Exception(f"Error: {contract_req.status_code}, Response text: {contract_req.text}")
 
 
+def subscribe_to_market_data(conid: int, fields: str = "31,82,83,84,86,87"):
+    """
+    Step 1: Subscribe to market data to get real-time prices.
+    This is required before polling the snapshot endpoint.
+    """
+    endpoint = "iserver/marketdata/subscribe"
+
+    fields_list = fields.split(',')
+    json_body = {
+        "conid": conid,
+        "fields": fields_list
+    }
+
+    contract_req = post(f"{BASE_URL}{endpoint}", json=json_body, verify=False)
+
+    if contract_req.status_code == 200:
+        return contract_req.json()
+    else:
+        raise Exception(f"Error subscribing to market data: {contract_req.status_code}, Response text: {contract_req.text}")
+
+
 def get_market_snapshot(conid: int, fields: str = "31,82,83,84,86,87"):
+    """
+    Step 2: Poll the subscription stream to get real-time market data.
+    First subscribes to market data, then fetches the snapshot.
+    """
     endpoint = "iserver/marketdata/snapshot"
+
+    try:
+        subscribe_to_market_data(conid, fields)
+        sleep(SUBSCRIPTION_WAIT_SECONDS)
+    except Exception as e:
+        pass
 
     query_params = build_query_params(conids=conid, fields=fields)
     request_url = build_request_url(endpoint, query_params)
