@@ -337,7 +337,7 @@ def place_bracket_order(conid: int, quantity: int, stop_loss_price: float, take_
         return create_error_response(f"Failed to switch to account {account}: {error_msg}")
 
     oca_group = f"oca-{conid}-{int(datetime.now().timestamp())}"
-    # Parent: Market Buy
+
     parent_order = {
         CONID_KEY: conid,
         ORDER_TYPE_KEY: ORDER_TYPE_MARKET,
@@ -346,7 +346,7 @@ def place_bracket_order(conid: int, quantity: int, stop_loss_price: float, take_
         QUANTITY_KEY: quantity,
         "isParent": True
     }
-    # Child: Stop Loss
+
     stop_loss_order = {
         CONID_KEY: conid,
         ORDER_TYPE_KEY: "STP",
@@ -357,7 +357,7 @@ def place_bracket_order(conid: int, quantity: int, stop_loss_price: float, take_
         "ocaGroup": oca_group,
         "auxPrice": float(stop_loss_price)
     }
-    # Child: Take Profit
+
     take_profit_order = {
         CONID_KEY: conid,
         ORDER_TYPE_KEY: "LMT",

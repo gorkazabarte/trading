@@ -99,12 +99,14 @@ def calculate_quantity_from_budget(current_price: float) -> int:
 
 
 def calculate_stop_loss_price(buy_price: float) -> float:
-    stop_loss_percentage = settings.get('stopLoss', 2.0)
+    settings = load_settings()
+    stop_loss_percentage = settings.get('stopLoss', 2.5)
     return round(buy_price * (1 - stop_loss_percentage / 100), 2)
 
 
 def calculate_take_profit_price(buy_price: float) -> float:
-    take_profit_percentage = settings.get('takeProfit', 5.0)
+    settings = load_settings()
+    take_profit_percentage = settings.get('takeProfit', 10)
     return round(buy_price * (1 + take_profit_percentage / 100), 2)
 
 
@@ -549,11 +551,29 @@ def process_company(ticker: str, market_data_dir: str, year: int, month: int, da
     if parsed_data is None:
         return None
 
+    # Always update bid/ask price and spread in TICKER.json
     file_path = f"{market_data_dir}/{ticker}.json"
     existing_closing_price = get_existing_closing_price(file_path, logger)
     closing_price = determine_closing_price(parsed_data, existing_closing_price, logger, ticker)
 
-    evaluate_and_log_trading_opportunity(ticker, parsed_data, closing_price, logger)
+    # Calculate spread and spread percentage
+    try:
+        bid = float(parsed_data.get('bid_price', 0) or 0)
+        ask = float(parsed_data.get('ask_price', 0) or 0)
+        last = float(parsed_data.get('last_price', 0) or 0)
+        spread = ask - bid if ask and bid else 0
+        spread_percent = (spread / last * 100) if last else 0
+        parsed_data['spread'] = round(spread, 4)
+        parsed_data['spread_percent'] = round(spread_percent, 2)
+    except Exception:
+        parsed_data['spread'] = None
+        parsed_data['spread_percent'] = None
+
+    # Only buy if spread percent is less than 0.5%
+    if parsed_data['spread_percent'] is not None and parsed_data['spread_percent'] < 0.5:
+        evaluate_and_log_trading_opportunity(ticker, parsed_data, closing_price, logger)
+    else:
+        logger.info(f"{ticker} - Spread too high ({parsed_data['spread_percent']}%), skipping buy.")
 
     company_data = create_company_data(ticker, parsed_data, closing_price, year, month, day)
     save_company_data(file_path, company_data, logger, ticker)
