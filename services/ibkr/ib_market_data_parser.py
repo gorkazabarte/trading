@@ -140,7 +140,6 @@ def parse_market_data(market_data: dict) -> dict:
     parse_timestamp(market_data, result)
     parse_spread(result)
 
-    # Set market closed status based on actual market hours, not exchange code
     if not is_during_market_hours():
         result['is_market_closed'] = True
 
