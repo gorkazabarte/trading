@@ -57,7 +57,7 @@ def fetch_market_data_for_ticker(ticker: str, logger: Logger):
         market_data = ib_client.get_market_data(ticker)
 
         if not market_data:
-            logger.warning(f"{ticker} - No market data available")
+            logger.warning(f"{ticker} - No market data available from IBKR")
             return None
 
         parsed_data = parse_market_data(market_data)
@@ -70,12 +70,15 @@ def fetch_market_data_for_ticker(ticker: str, logger: Logger):
         if last_price and bid_price and ask_price:
             logger.info(f"{ticker} - Price: ${last_price:.2f}, Bid: ${bid_price:.2f}, Ask: ${ask_price:.2f}, Spread: {spread_percent:.2f}%")
         else:
-            logger.info(f"{ticker} - Limited data: Last=${last_price}, Bid=${bid_price}, Ask=${ask_price}")
+            logger.warning(f"{ticker} - Limited data: Last=${last_price}, Bid=${bid_price}, Ask=${ask_price}")
+            logger.warning(f"{ticker} - This may indicate IBKR market data subscription issue or ticker not found")
 
         return parsed_data
 
     except Exception as e:
         logger.error(f"{ticker} - Error fetching market data: {e}")
+        import traceback
+        logger.error(f"{ticker} - Traceback: {traceback.format_exc()}")
         return None
 
 
@@ -105,19 +108,11 @@ def evaluate_trading_opportunity(ticker: str, current_price: float, closing_pric
     handle_buy_action(ticker, conid, current_price, closing_price, logger)
 
 
-def is_spread_acceptable(spread_percent: Optional[float]) -> bool:
-    return spread_percent is not None and spread_percent < 0.5
-
 
 def evaluate_and_log_trading_opportunity(ticker: str, parsed_data: Dict, closing_price: Optional[str], logger: Logger) -> None:
     if not should_evaluate_trading_opportunity(parsed_data, closing_price):
         return
 
-    spread_percent = parsed_data.get('spread_percent')
-
-    if not is_spread_acceptable(spread_percent):
-        logger.info(f"{ticker} - Spread too high ({spread_percent}%), skipping buy.")
-        return
 
     current_price = parsed_data.get('last_price')
     conid = parsed_data.get('conid')
@@ -175,24 +170,36 @@ def run_market_data_collection_cycle(s3_client, logger: Logger) -> Optional[Dict
         logger.warning("Daily files not yet downloaded - skipping market data collection")
         return None
 
+    logger.info(f"Processing {len(state.cached_companies)} companies for market data...")
     market_data_by_ticker = {}
+    successful_count = 0
+    failed_count = 0
 
     for ticker in state.cached_companies:
         parsed_data = fetch_market_data_for_ticker(ticker, logger)
 
         if parsed_data:
             closing_price = parsed_data.get('closing_price')
+            last_price = parsed_data.get('last_price')
 
-            if is_spread_acceptable(parsed_data.get('spread_percent')):
+            if last_price:
                 evaluate_and_log_trading_opportunity(ticker, parsed_data, closing_price, logger)
+                successful_count += 1
+            else:
+                logger.warning(f"{ticker} - Skipping trading evaluation: No price data available")
+                failed_count += 1
 
             file_path = f"{market_data_dir}/{ticker}.json"
             company_data = create_company_data(ticker, parsed_data, closing_price, year, month, day)
             save_company_data(file_path, company_data, logger, ticker)
 
             market_data_by_ticker[ticker] = parsed_data
+        else:
+            logger.error(f"{ticker} - Failed to fetch market data, skipping")
+            failed_count += 1
 
-    return market_data_by_ticker
+    logger.info(f"Market data collection complete: {successful_count} successful, {failed_count} failed")
+    return market_data_by_ticker if market_data_by_ticker else None
 
 
 def log_positions_summary(market_data_by_ticker: Dict[str, Dict], logger: Logger) -> None:

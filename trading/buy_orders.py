@@ -85,7 +85,7 @@ def record_bought_share(ticker: str, conid: int, threshold_price: float, params:
     add_bought_share(ticker, share_data)
 
 
-def create_position_data(ticker: str, conid: int, params: Dict, threshold_price: float, current_price: float) -> Dict:
+def create_position_data(ticker: str, conid: int, params: Dict, threshold_price: float, current_price: float, order_type: str, order_status: str = "PENDING", filled: bool = False) -> Dict:
     return {
         "ticker": ticker,
         "conid": conid,
@@ -94,7 +94,13 @@ def create_position_data(ticker: str, conid: int, params: Dict, threshold_price:
         "market_price": current_price,
         "market_value": current_price * params['quantity'],
         "unrealized_pnl": 0.0,
-        "currency": "USD"
+        "currency": "USD",
+        "order_type": order_type,
+        "order_price": threshold_price,
+        "order_status": order_status,
+        "filled": filled,
+        "stop_loss_price": params['stop_loss_price'],
+        "take_profit_price": params['take_profit_price']
     }
 
 
@@ -107,9 +113,18 @@ def log_buy_failure(ticker: str, order_type: str, error_msg: str, logger: Logger
 
 
 def save_position_to_file(ticker: str, position_data: Dict, year: int, month: int, day: int, s3_client) -> None:
-    from services.ibkr.ib_portfolio import save_positions_to_files
-    positions = {ticker: position_data}
-    save_positions_to_files(positions, year, month, day, s3_client)
+    from services.ibkr.ib_portfolio import load_open_positions, open_positions_file_exists, save_positions_to_files
+
+    # Load existing positions (if any)
+    existing_positions = {}
+    if open_positions_file_exists():
+        existing_positions = load_open_positions() or {}
+
+    # Add/update this ticker's position
+    existing_positions[ticker] = position_data
+
+    # Save all positions
+    save_positions_to_files(existing_positions, year, month, day, s3_client)
 
 
 def handle_buy_action(ticker: str, conid: int, current_price: float, closing_price: float, logger: Logger) -> None:
@@ -134,10 +149,10 @@ def handle_buy_action(ticker: str, conid: int, current_price: float, closing_pri
         log_buy_success(ticker, order_type, params, entry_price_desc, current_price, logger)
 
         year, month, day = get_current_date()
-        position_data = create_position_data(ticker, conid, params, threshold_price, current_price)
+        position_data = create_position_data(ticker, conid, params, threshold_price, current_price, order_type, "PENDING", filled=False)
         s3_client = create_s3_client()
         save_position_to_file(ticker, position_data, year, month, day, s3_client)
-        logger.info(f"{ticker} - Position saved to open_positions.json")
+        logger.info(f"{ticker} - Pending order saved to open_positions.json")
     else:
         error_msg = order_result.get('error', 'Order request failed with no error message')
         log_buy_failure(ticker, order_type, error_msg, logger)

@@ -32,7 +32,10 @@ def create_empty_result(market_data: dict) -> dict:
         'is_market_closed': False,
         'price_type': None,
         'exchange_code': None,
-        'timestamp': None
+        'timestamp': None,
+        'closing_price': None,
+        'spread': None,
+        'spread_percent': None
     }
 
 
@@ -122,7 +125,58 @@ def parse_spread(result: dict) -> None:
         result['spread_percent'] = None
 
 
-def parse_market_data(market_data: dict) -> dict:
+def is_ib_insync_format(market_data: dict) -> bool:
+    """Check if market data is from ib_insync (has 'ticker' key) vs Client Portal API (has field numbers)."""
+    return 'ticker' in market_data or 'last_price' in market_data
+
+
+def parse_ib_insync_market_data(market_data: dict) -> dict:
+    """Parse market data from ib_insync format (from get_market_data)."""
+    result = {
+        'conid': market_data.get('conid'),
+        'last_price': market_data.get('last_price'),
+        'previous_close': market_data.get('close_price'),
+        'change_from_close': None,
+        'change_from_close_percent': None,
+        'bid_price': market_data.get('bid_price'),
+        'ask_price': market_data.get('ask_price'),
+        'volume': str(market_data.get('volume', 0)) if market_data.get('volume') else None,
+        'volume_raw': market_data.get('volume'),
+        'is_market_closed': not is_during_market_hours(),
+        'price_type': 'Last Trade',
+        'exchange_code': market_data.get('exchange', 'SMART'),
+        'timestamp': datetime.now(),
+        'spread': None,
+        'spread_percent': None,
+        'closing_price': market_data.get('close_price')
+    }
+
+    # Calculate change from close if we have both last price and close price
+    if result['last_price'] and result['previous_close']:
+        try:
+            last = float(result['last_price'])
+            close = float(result['previous_close'])
+            result['change_from_close'] = round(last - close, 2)
+            result['change_from_close_percent'] = round(((last - close) / close) * 100, 2)
+        except (ValueError, TypeError):
+            pass
+
+    if result['bid_price'] and result['ask_price']:
+        try:
+            bid = float(result['bid_price'])
+            ask = float(result['ask_price'])
+            result['spread'], result['spread_percent'] = calculate_spread(bid, ask)
+        except (ValueError, TypeError):
+            pass
+
+    if result['previous_close']:
+        result['closing_price'] = result['previous_close']
+
+    return result
+
+
+def parse_client_portal_market_data(market_data: dict) -> dict:
+    """Parse market data from Client Portal API format (field numbers like '31', '84', etc)."""
     result = create_empty_result(market_data)
 
     exchange_code = market_data.get('6509')
@@ -143,7 +197,25 @@ def parse_market_data(market_data: dict) -> dict:
     if not is_during_market_hours():
         result['is_market_closed'] = True
 
+    # Set closing_price from previous_close for consistency
+    if result['previous_close']:
+        result['closing_price'] = result['previous_close']
+
     return result
+
+
+def parse_market_data(market_data: dict) -> dict:
+    """
+    Parse market data from either ib_insync format or Client Portal API format.
+    Automatically detects the format and uses the appropriate parser.
+    """
+    if not market_data:
+        return create_empty_result({})
+
+    if is_ib_insync_format(market_data):
+        return parse_ib_insync_market_data(market_data)
+    else:
+        return parse_client_portal_market_data(market_data)
 
 
 def format_price_info(parsed_data: dict) -> str:

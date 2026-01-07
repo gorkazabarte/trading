@@ -3,7 +3,7 @@
 cd "${HOME}/App/trading" || exit 1
 
 export AWS_ACCESS_KEY_ID=""
-export AWS_SECRET_ACCESS_KEY=""
+export AWS_SECRET_ACCESS_KEY=" "
 export AWS_DEFAULT_REGION="us-west-2"
 export IB_USE_TWS=false
 export APP_PATH="${HOME}/App/trading"

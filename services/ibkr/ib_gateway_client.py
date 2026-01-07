@@ -1,6 +1,7 @@
 from ib_insync import IB, Stock, MarketOrder, LimitOrder, StopOrder, Contract
 from typing import Optional, Dict, List
 import os
+import logging
 
 TWS_PORT = 7496
 GATEWAY_PORT = 4001
@@ -10,8 +11,9 @@ DATA_WAIT_SECONDS = 3
 ORDER_WAIT_SECONDS = 2
 POSITION_WAIT_SECONDS = 1
 
+logger = logging.getLogger(__name__)
+
 class IBGatewayClient:
-    """Client for connecting to Interactive Brokers TWS or IB Gateway."""
 
     def __init__(self, host: str = DEFAULT_HOST, port: Optional[int] = None,
                  client_id: int = DEFAULT_CLIENT_ID, use_tws: Optional[bool] = None):
@@ -21,82 +23,62 @@ class IBGatewayClient:
         self.use_tws = self._determine_platform_type(use_tws)
         self.port = self._determine_port(port)
         self.connected = False
-        print(f"Configured for {self._get_platform_name()} on port {self.port}")
+        logger.info(f"Configured for {self._get_platform_name()} on port {self.port}")
 
     def _determine_platform_type(self, use_tws: Optional[bool]) -> bool:
-        """Determine whether to use TWS or Gateway from parameter or environment."""
         if use_tws is None:
             return os.getenv('IB_USE_TWS', 'false').lower() == 'true'
         return use_tws
 
     def _determine_port(self, port: Optional[int]) -> int:
-        """Determine the connection port based on platform type or explicit port."""
         if port is not None:
             return port
         return TWS_PORT if self.use_tws else GATEWAY_PORT
 
     def _get_platform_name(self) -> str:
-        """Get the name of the current platform."""
         return 'TWS' if self.use_tws else 'IB Gateway'
 
     def connect(self) -> bool:
-        """Establish connection to IB Gateway or TWS."""
         try:
             platform_name = self._get_platform_name()
-            print(f"Connecting to {platform_name} at {self.host}:{self.port}...")
+            logger.info(f"Connecting to {platform_name} at {self.host}:{self.port}...")
             self.ib.connect(self.host, self.port, clientId=self.client_id)
             self.connected = True
-            print(f"Successfully connected to {platform_name}")
+            logger.info(f"Successfully connected to {platform_name}")
             return True
         except Exception as e:
-            self._print_connection_error(e)
+            self._log_connection_error(e)
             self.connected = False
             return False
 
-    def _print_connection_error(self, error: Exception):
-        """Print detailed connection error and troubleshooting steps."""
+    def _log_connection_error(self, error: Exception):
         platform_name = self._get_platform_name()
-        print(f"✗ Failed to connect to {platform_name}: {error}")
-        print(f"\nTroubleshooting:")
+        logger.error(f"Failed to connect to {platform_name}: {error}")
+        logger.error("Troubleshooting:")
         if self.use_tws:
-            self._print_tws_troubleshooting()
+            self._log_tws_troubleshooting()
         else:
-            self._print_gateway_troubleshooting()
+            self._log_gateway_troubleshooting()
 
-    def _print_tws_troubleshooting(self):
-        """Print TWS-specific troubleshooting steps."""
-        print("  1. Make sure TWS is running")
-        print("  2. In TWS: File → Global Configuration → API → Settings")
-        print("     - Enable 'Enable ActiveX and Socket Clients'")
-        print("     - Check Socket port is 7496")
-        print("     - Uncheck 'Read-Only API'")
+    def _log_tws_troubleshooting(self):
+        logger.error("  1. Make sure TWS is running")
+        logger.error("  2. In TWS: File → Global Configuration → API → Settings")
+        logger.error("     - Enable 'Enable ActiveX and Socket Clients'")
+        logger.error("     - Check Socket port is 7496")
+        logger.error("     - Uncheck 'Read-Only API'")
 
-    def _print_gateway_troubleshooting(self):
-        """Print IB Gateway-specific troubleshooting steps."""
-        print("  1. Make sure IB Gateway is running")
-        print("  2. Check port is 4001 (live) or 4002 (paper)")
-        print("  3. Verify API settings are enabled")
+    def _log_gateway_troubleshooting(self):
+        logger.error("  1. Make sure IB Gateway is running")
+        logger.error("  2. Check port is 4001 (live) or 4002 (paper)")
+        logger.error("  3. Verify API settings are enabled")
 
     def disconnect(self):
-        """Disconnect from IB Gateway or TWS."""
         if self.connected:
             self.ib.disconnect()
             self.connected = False
 
     def get_market_data(self, ticker: str, exchange: str = 'SMART', currency: str = 'USD',
                        use_delayed: Optional[bool] = None) -> Optional[Dict]:
-        """
-        Retrieve real-time or delayed market data for a stock ticker.
-
-        Args:
-            ticker: Stock symbol
-            exchange: Exchange routing (default: SMART for best execution)
-            currency: Currency denomination
-            use_delayed: Use delayed data feed; auto-detects from IB_USE_DELAYED_DATA env var if None
-
-        Returns:
-            Dictionary containing price data or None if unavailable
-        """
         if not self.connected:
             return None
 
@@ -106,9 +88,17 @@ class IBGatewayClient:
         try:
             contract = Contract(symbol=ticker, secType='STK', exchange=exchange, currency=currency)
             self.ib.qualifyContracts(contract)
-            ticker_obj = self.ib.reqMktData(contract, '', use_delayed, False)
 
-            self.ib.sleep(DATA_WAIT_SECONDS)
+            ticker_obj = self.ib.reqMktData(contract, '233', use_delayed, False)
+
+            for attempt in range(3):
+                self.ib.sleep(DATA_WAIT_SECONDS)
+
+                if ticker_obj.last and ticker_obj.last > 0:
+                    break
+
+                if attempt < 2:
+                    logger.debug(f"{ticker} - Waiting for market data (attempt {attempt + 1}/3)")
 
             market_data = self._extract_market_data(ticker_obj, ticker, contract, use_delayed)
 
@@ -117,20 +107,35 @@ class IBGatewayClient:
             return market_data
 
         except Exception as e:
-            print(f"Error getting market data for {ticker}: {e}")
+            logger.error(f"Error getting market data for {ticker}: {e}")
             return None
 
     def _extract_market_data(self, ticker_obj, ticker: str, contract, use_delayed: bool) -> Optional[Dict]:
-        """Extract and validate market data from ticker object."""
         last_price = self._get_valid_price(ticker_obj.last)
         bid_price = self._get_valid_price(ticker_obj.bid)
         ask_price = self._get_valid_price(ticker_obj.ask)
-        close_price = self._get_valid_price(ticker_obj.close)
+
+        if not last_price and bid_price and ask_price:
+            last_price = (bid_price + ask_price) / 2
+
+        close_price = (
+            self._get_valid_price(ticker_obj.close) or
+            self._get_valid_price(getattr(ticker_obj, 'previousClose', None)) or
+            self._get_valid_price(getattr(ticker_obj, 'prevClose', None))
+        )
+
+        if not close_price:
+            logger.debug(f"{ticker} - Fetching previous closing price from historical data")
+            close_price = self._get_previous_close(contract)
+
         volume = ticker_obj.volume if ticker_obj.volume else 0
 
-        if not any([last_price, bid_price, ask_price, close_price]):
-            print(f"No market data available for {ticker} - may need additional subscription")
+        if not any([last_price, bid_price, ask_price]):
+            logger.warning(f"No market data available for {ticker} - may need additional subscription")
             return None
+
+        if not close_price:
+            logger.warning(f"{ticker} - No closing price available, trading evaluation will be skipped")
 
         return {
             'ticker': ticker,
@@ -146,12 +151,32 @@ class IBGatewayClient:
         }
 
     def _get_valid_price(self, price) -> Optional[float]:
-        """Return price if valid (non-null and positive), otherwise None."""
         return price if price and price > 0 else None
+
+    def _get_previous_close(self, contract) -> Optional[float]:
+        try:
+            bars = self.ib.reqHistoricalData(
+                contract,
+                endDateTime='',
+                durationStr='2 D',
+                barSizeSetting='1 day',
+                whatToShow='TRADES',
+                useRTH=True,
+                formatDate=1
+            )
+
+            if bars and len(bars) >= 2:
+                return bars[-2].close
+            elif bars and len(bars) == 1:
+                return bars[0].close
+
+            return None
+        except Exception as e:
+            logger.error(f"Error fetching previous close: {e}")
+            return None
 
 
     def get_contract_details(self, ticker: str, exchange: str = 'SMART', currency: str = 'USD') -> Optional[int]:
-        """Retrieve contract ID for a stock ticker."""
         if not self.connected:
             return None
 
@@ -160,11 +185,10 @@ class IBGatewayClient:
             self.ib.qualifyContracts(contract)
             return contract.conId
         except Exception as e:
-            print(f"Error getting contract details for {ticker}: {e}")
+            logger.error(f"Error getting contract details for {ticker}: {e}")
             return None
 
     def get_positions(self) -> List[Dict]:
-        """Retrieve all open positions with current market data."""
         if not self.connected:
             return []
 
@@ -172,11 +196,76 @@ class IBGatewayClient:
             positions = self.ib.positions()
             return [self._build_position_dict(position) for position in positions]
         except Exception as e:
-            print(f"Error getting positions: {e}")
+            logger.error(f"Error getting positions: {e}")
             return []
 
+    def cancel_all_orders(self) -> Dict:
+        if not self.connected:
+            return {'success': False, 'error': 'Not connected to IB Gateway', 'cancelled_count': 0}
+
+        try:
+            trades = self.ib.openTrades()
+            cancelled_count = 0
+
+            for trade in trades:
+                try:
+                    order = trade.order
+                    self.ib.cancelOrder(order)
+                    cancelled_count += 1
+                    logger.info(f"Cancelled order {order.orderId}")
+                except Exception as e:
+                    order_id = getattr(trade.order, 'orderId', 'unknown')
+                    logger.error(f"Failed to cancel order {order_id}: {e}")
+
+            self.ib.sleep(ORDER_WAIT_SECONDS)
+
+            return {
+                'success': True,
+                'cancelled_count': cancelled_count,
+                'message': f'Cancelled {cancelled_count} order(s)'
+            }
+
+        except Exception as e:
+            logger.error(f"Error cancelling orders: {e}")
+            return {'success': False, 'error': str(e), 'cancelled_count': 0}
+
+    def verify_no_open_orders(self) -> Dict:
+        if not self.connected:
+            return {'success': False, 'error': 'Not connected to IB Gateway', 'open_orders_count': 0}
+
+        try:
+            trades = self.ib.openTrades()
+            open_orders_count = len(trades)
+
+            return {
+                'success': True,
+                'open_orders_count': open_orders_count,
+                'has_open_orders': open_orders_count > 0
+            }
+
+        except Exception as e:
+            logger.error(f"Error checking open orders: {e}")
+            return {'success': False, 'error': str(e), 'open_orders_count': 0}
+
+    def verify_no_open_positions(self) -> Dict:
+        if not self.connected:
+            return {'success': False, 'error': 'Not connected to IB Gateway', 'open_positions_count': 0}
+
+        try:
+            positions = self.ib.positions()
+            open_positions_count = len(positions)
+
+            return {
+                'success': True,
+                'open_positions_count': open_positions_count,
+                'has_open_positions': open_positions_count > 0
+            }
+
+        except Exception as e:
+            logger.error(f"Error checking open positions: {e}")
+            return {'success': False, 'error': str(e), 'open_positions_count': 0}
+
     def _build_position_dict(self, position) -> Dict:
-        """Build position dictionary with current market data."""
         contract = position.contract
 
         ticker_obj = self.ib.reqMktData(contract, '', False, False)
@@ -201,25 +290,11 @@ class IBGatewayClient:
         }
 
     def _get_market_price(self, ticker_obj, fallback_price: float) -> float:
-        """Get market price from ticker object or fallback to average cost."""
         return ticker_obj.last if ticker_obj.last and ticker_obj.last > 0 else fallback_price
 
 
     def place_market_order(self, ticker: str, quantity: int, action: str = 'BUY',
                           exchange: str = 'SMART', currency: str = 'USD') -> Dict:
-        """
-        Submit a market order for immediate execution.
-
-        Args:
-            ticker: Stock symbol
-            quantity: Number of shares
-            action: Order action ('BUY' or 'SELL')
-            exchange: Exchange routing (default: SMART)
-            currency: Currency denomination
-
-        Returns:
-            Dictionary with order status and details
-        """
         if not self.connected:
             return {'success': False, 'error': 'Not connected to IB Gateway'}
 
@@ -245,20 +320,6 @@ class IBGatewayClient:
     def place_bracket_order(self, ticker: str, quantity: int,
                            stop_loss_price: float, take_profit_price: float,
                            exchange: str = 'SMART', currency: str = 'USD') -> Dict:
-        """
-        Submit a bracket order with market entry, stop loss, and take profit.
-
-        Args:
-            ticker: Stock symbol
-            quantity: Number of shares
-            stop_loss_price: Stop loss trigger price
-            take_profit_price: Take profit limit price
-            exchange: Exchange routing (default: SMART)
-            currency: Currency denomination
-
-        Returns:
-            Dictionary with order status and details
-        """
         if not self.connected:
             return {'success': False, 'error': 'Not connected to IB Gateway'}
 
@@ -301,21 +362,6 @@ class IBGatewayClient:
     def place_stop_bracket_order(self, ticker: str, quantity: int, stop_price: float,
                                  stop_loss_price: float, take_profit_price: float,
                                  exchange: str = 'SMART', currency: str = 'USD') -> Dict:
-        """
-        Submit a bracket order with STOP entry, stop loss, and take profit.
-
-        Args:
-            ticker: Stock symbol
-            quantity: Number of shares
-            stop_price: Price at which to trigger the buy order
-            stop_loss_price: Stop loss trigger price
-            take_profit_price: Take profit limit price
-            exchange: Exchange routing (default: SMART)
-            currency: Currency denomination
-
-        Returns:
-            Dictionary with order status and details
-        """
         if not self.connected:
             return {'success': False, 'error': 'Not connected to IB Gateway'}
 
@@ -359,21 +405,6 @@ class IBGatewayClient:
     def place_limit_bracket_order(self, ticker: str, quantity: int, limit_price: float,
                                   stop_loss_price: float, take_profit_price: float,
                                   exchange: str = 'SMART', currency: str = 'USD') -> Dict:
-        """
-        Submit a bracket order with LIMIT entry, stop loss, and take profit.
-
-        Args:
-            ticker: Stock symbol
-            quantity: Number of shares
-            limit_price: Maximum price to pay for the buy order
-            stop_loss_price: Stop loss trigger price
-            take_profit_price: Take profit limit price
-            exchange: Exchange routing (default: SMART)
-            currency: Currency denomination
-
-        Returns:
-            Dictionary with order status and details
-        """
         if not self.connected:
             return {'success': False, 'error': 'Not connected to IB Gateway'}
 
@@ -417,7 +448,6 @@ class IBGatewayClient:
 _ib_client = None
 
 def get_ib_client(use_tws: Optional[bool] = None) -> IBGatewayClient:
-    """Get or create singleton IB Gateway/TWS client instance."""
     global _ib_client
     if _ib_client is None:
         _ib_client = IBGatewayClient(use_tws=use_tws)
@@ -425,7 +455,6 @@ def get_ib_client(use_tws: Optional[bool] = None) -> IBGatewayClient:
     return _ib_client
 
 def disconnect_ib_client():
-    """Disconnect and reset IB Gateway/TWS client singleton."""
     global _ib_client
     if _ib_client:
         _ib_client.disconnect()
