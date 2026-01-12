@@ -106,24 +106,38 @@ def process_successful_sell(ticker: str, quantity: float, buy_price: float, sell
 
 
 def sell_at_market_price(ticker: str, quantity: float, buy_price: float, sell_price: float, logger: Logger) -> None:
-    ib_client = get_ib_client()
-    order_result = execute_market_sell(ib_client, ticker, int(quantity))
+    try:
+        ib_client = get_ib_client()
 
-    if order_result.get("success"):
-        process_successful_sell(ticker, quantity, buy_price, sell_price, logger)
-    else:
-        error_msg = order_result.get('error', 'Sell order request failed')
-        log_failed_sell(ticker, error_msg, logger)
+        if not ib_client or not ib_client.connected:
+            logger.error(f"SELL FAILED - {ticker}: IB Gateway not connected")
+            return
+
+        order_result = execute_market_sell(ib_client, ticker, int(quantity))
+
+        if order_result.get("success"):
+            process_successful_sell(ticker, quantity, buy_price, sell_price, logger)
+        else:
+            error_msg = order_result.get('error', 'Sell order request failed')
+            log_failed_sell(ticker, error_msg, logger)
+    except Exception as e:
+        logger.error(f"SELL FAILED - {ticker}: Exception occurred: {e}")
 
 
-def close_position(position_data: Dict, logger: Logger) -> None:
-    ticker, quantity, avg_price, market_price = extract_position_info(position_data)
+def close_position(position_data: Dict, logger: Logger) -> bool:
+    try:
+        ticker, quantity, avg_price, market_price = extract_position_info(position_data)
 
-    if not can_close_position(ticker, quantity):
-        return
+        if not can_close_position(ticker, quantity):
+            return False
 
-    log_position_closing(ticker, quantity, avg_price, market_price, logger)
-    sell_at_market_price(ticker, quantity, avg_price, market_price, logger)
+        log_position_closing(ticker, quantity, avg_price, market_price, logger)
+        sell_at_market_price(ticker, quantity, avg_price, market_price, logger)
+        return True
+    except Exception as e:
+        ticker = position_data.get('ticker', 'UNKNOWN')
+        logger.error(f"Exception while closing position for {ticker}: {e}")
+        return False
 
 
 def cancel_all_pending_orders(ib_client, s3_client, logger) -> None:
@@ -143,10 +157,28 @@ def cancel_all_pending_orders(ib_client, s3_client, logger) -> None:
 
 
 def close_positions(positions: List, logger: Logger) -> None:
+    from time import sleep
+
     log_position_count(len(positions), logger)
 
-    for position_data in positions:
-        close_position(position_data, logger)
+    closed_count = 0
+    failed_count = 0
+
+    for idx, position_data in enumerate(positions):
+        ticker = position_data.get('ticker', 'UNKNOWN')
+        logger.info(f"Processing position {idx + 1}/{len(positions)}: {ticker}")
+
+        success = close_position(position_data, logger)
+        if success:
+            closed_count += 1
+        else:
+            failed_count += 1
+
+        if idx < len(positions) - 1:
+            logger.info(f"Waiting 1 second before processing next position...")
+            sleep(1)
+
+    logger.info(f"Position closing complete: {closed_count} closed, {failed_count} failed or skipped")
 
 
 def should_close_positions() -> bool:
