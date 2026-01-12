@@ -108,7 +108,6 @@ def fetch_accounts() -> Response:
 def fetch_and_sync_positions(logger, s3_client):
     from services.ibkr.ib_gateway_client import get_ib_client
     from utils.file_operations import write_json_to_file
-    from utils.time_utils import get_current_date
 
     logger.info("Fetching current positions from IBKR...")
     ib_client = get_ib_client()
@@ -139,9 +138,9 @@ def fetch_and_sync_positions(logger, s3_client):
             logger.error(f"Failed to upload empty open_positions.json to S3: {e}")
         return
 
-    year, month, day = get_current_date()
-    positions_dict = convert_positions_list_to_dict(positions)
-    save_positions_to_files(positions_dict, year, month, day, s3_client)
+    existing_positions = load_open_positions() if open_positions_file_exists() else {}
+    merged_positions = merge_positions_with_order_data(positions, existing_positions)
+    save_and_upload_positions(merged_positions, s3_client, logger)
 
 
 def fetch_positions_for_account(account_id: str) -> Response:
@@ -292,6 +291,46 @@ def load_open_positions() -> Dict:
 def mark_order_as_filled(position_data: Dict) -> None:
     position_data['filled'] = True
     position_data['order_status'] = 'FILLED'
+
+
+def merge_positions_with_order_data(ibkr_positions_list: list, existing_positions: Dict) -> Dict:
+    from datetime import datetime, timezone
+    from utils.time_utils import get_current_date
+
+    year, month, day = get_current_date()
+    merged = {}
+
+    for position in ibkr_positions_list:
+        ticker = position.get('ticker')
+        if not ticker:
+            continue
+
+        existing_data = existing_positions.get(ticker, {})
+
+        merged[ticker] = {
+            'ticker': ticker,
+            'conid': position.get('conid'),
+            'position': position.get('position'),
+            'average_price': position.get('average_price'),
+            'market_price': position.get('market_price'),
+            'market_value': position.get('market_value'),
+            'unrealized_pnl': position.get('unrealized_pnl'),
+            'currency': position.get('currency'),
+            'timestamp': datetime.now(timezone.utc).isoformat(),
+            'date': f"{year}-{month:02d}-{day:02d}",
+            'filled': True,
+            'order_status': 'FILLED',
+            'order_type': existing_data.get('order_type', 'N/A'),
+            'order_price': existing_data.get('order_price', 'N/A'),
+            'take_profit_price': existing_data.get('take_profit_price', 'N/A'),
+            'stop_loss_price': existing_data.get('stop_loss_price', 'N/A'),
+        }
+
+    for ticker, existing_data in existing_positions.items():
+        if ticker not in merged and not existing_data.get('filled', False):
+            merged[ticker] = existing_data
+
+    return merged
 
 
 def open_positions_file_exists() -> bool:

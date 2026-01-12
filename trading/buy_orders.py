@@ -17,6 +17,26 @@ from utils.aws_client import create_s3_client
 from services.ibkr.ib_gateway_client import get_ib_client
 
 
+def has_existing_position_or_order(ticker: str, logger: Logger) -> bool:
+    from services.ibkr.ib_portfolio import open_positions_file_exists, load_open_positions
+
+    if open_positions_file_exists():
+        open_positions = load_open_positions()
+        if ticker in open_positions:
+            logger.info(f"SKIP - {ticker}: Already has an existing order or position in open_positions.json")
+            return True
+
+    ib_client = get_ib_client()
+    if ib_client and ib_client.connected:
+        positions = ib_client.get_positions()
+        for position in positions:
+            if position.get('ticker') == ticker and position.get('position', 0) > 0:
+                logger.info(f"SKIP - {ticker}: Already has an open position in IBKR account")
+                return True
+
+    return False
+
+
 def calculate_order_parameters(threshold_price: float, logger: Logger, ticker: str) -> Optional[Dict]:
     budget_per_trade = calculate_budget_per_trade()
     quantity = calculate_quantity_from_budget(threshold_price)
@@ -129,6 +149,9 @@ def save_position_to_file(ticker: str, position_data: Dict, year: int, month: in
 
 def handle_buy_action(ticker: str, conid: int, current_price: float, closing_price: float, logger: Logger) -> None:
     if is_ticker_bought(ticker):
+        return
+
+    if has_existing_position_or_order(ticker, logger):
         return
 
     threshold_price = calculate_buy_threshold_price(closing_price)
