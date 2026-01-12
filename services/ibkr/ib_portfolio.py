@@ -70,6 +70,15 @@ def clear_open_positions(s3_client, logger):
         logger.error(f"Failed to upload cleared open_positions.json to S3: {e}")
 
 
+def convert_positions_list_to_dict(positions_list: list) -> Dict:
+    positions_dict = {}
+    for position in positions_list:
+        ticker = position.get('ticker')
+        if ticker:
+            positions_dict[ticker] = position
+    return positions_dict
+
+
 def extract_account_id(accounts_data: Any) -> str:
     if isinstance(accounts_data, list):
         return str(accounts_data[0].get('id'))
@@ -131,7 +140,8 @@ def fetch_and_sync_positions(logger, s3_client):
         return
 
     year, month, day = get_current_date()
-    save_positions_to_files(positions, year, month, day, s3_client)
+    positions_dict = convert_positions_list_to_dict(positions)
+    save_positions_to_files(positions_dict, year, month, day, s3_client)
 
 
 def fetch_positions_for_account(account_id: str) -> Response:
@@ -418,10 +428,19 @@ def update_order_fill_status(logger, s3_client):
         ibkr_positions = ib_client.get_positions()
         filled_tickers = extract_filled_tickers(ibkr_positions)
 
+        if filled_tickers:
+            logger.info(f"Found {len(filled_tickers)} filled position(s) in IBKR: {', '.join(sorted(filled_tickers))}")
+
+        pending_tickers = [t for t, p in open_positions.items() if is_order_pending(p)]
+        if pending_tickers:
+            logger.info(f"Pending orders in open_positions.json: {', '.join(sorted(pending_tickers))}")
+
         updated = update_all_positions_status(open_positions, filled_tickers, logger)
 
         if updated:
             save_and_upload_positions(open_positions, s3_client, logger)
+        elif pending_tickers:
+            logger.info("No order status updates detected")
 
     except Exception as e:
         logger.error(f"Error updating order fill status: {e}")
