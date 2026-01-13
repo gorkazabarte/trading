@@ -1,11 +1,11 @@
-import json
-import os
+from json import dumps, loads
+from os import environ
 from datetime import datetime, timedelta
 import boto3
 
 
 s3_client = boto3.client('s3')
-S3_BUCKET = os.environ.get('S3_BUCKET', 'dev-trading-data-storage')
+S3_BUCKET = environ.get('S3_BUCKET', 'dev-trading-data-storage')
 
 
 def calculate_statistics(positions):
@@ -58,7 +58,7 @@ def load_closed_positions_for_date(year, month, day):
 
     try:
         response = s3_client.get_object(Bucket=S3_BUCKET, Key=s3_key)
-        data = json.loads(response['Body'].read().decode('utf-8'))
+        data = loads(response['Body'].read().decode('utf-8'))
         return data if isinstance(data, list) else []
     except s3_client.exceptions.NoSuchKey:
         return []
@@ -68,14 +68,14 @@ def load_closed_positions_for_date(year, month, day):
 
 def lambda_handler(event, context):
     try:
-        body = json.loads(event.get('body', '{}')) if isinstance(event.get('body'), str) else event.get('body', {})
+        body = loads(event.get('body', '{}')) if isinstance(event.get('body'), str) else event.get('body', {})
         days_back = body.get('days', 5)
 
         if not isinstance(days_back, int) or days_back < 1 or days_back > 365:
             return {
                 'statusCode': 400,
                 'headers': {'Content-Type': 'application/json'},
-                'body': json.dumps({'error': 'days must be an integer between 1 and 365'})
+                'body': dumps({'error': 'days must be an integer between 1 and 365'})
             }
 
         date_range = get_date_range(days_back)
@@ -96,13 +96,12 @@ def lambda_handler(event, context):
         return {
             'statusCode': 200,
             'headers': {'Content-Type': 'application/json'},
-            'body': json.dumps(response_data)
+            'body': dumps(response_data)
         }
 
     except Exception as e:
         return {
             'statusCode': 500,
             'headers': {'Content-Type': 'application/json'},
-            'body': json.dumps({'error': f'Failed to retrieve closed positions: {str(e)}'})
+            'body': dumps({'error': f'Failed to retrieve closed positions: {str(e)}'})
         }
-
