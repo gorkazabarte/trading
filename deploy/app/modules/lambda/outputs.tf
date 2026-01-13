@@ -28,6 +28,21 @@ output "lambda_get_calendar_invoke_arn" {
   value       = module.lambda_function_get_calendar.lambda_function_invoke_arn
 }
 
+output "lambda_get_operations_arn" {
+  description = "ARN of the Lambda function for getting operations data"
+  value       = module.lambda_function_get_operations.lambda_function_arn
+}
+
+output "lambda_get_operations_name" {
+  description = "Name of the Lambda function for getting operations data"
+  value       = module.lambda_function_get_operations.lambda_function_name
+}
+
+output "lambda_get_operations_invoke_arn" {
+  description = "Invoke ARN of the Lambda function for getting operations data"
+  value       = module.lambda_function_get_operations.lambda_function_invoke_arn
+}
+
 output "lambda_get_positions_arn" {
   description = "ARN of the Lambda function for getting positions"
   value       = module.lambda_function_get_positions.lambda_function_arn

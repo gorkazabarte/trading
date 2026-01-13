@@ -14,6 +14,8 @@ locals {
 inputs = {
   lambda_get_calendar_arn      = dependency.lambda.outputs.lambda_get_calendar_invoke_arn
   lambda_get_calendar_name     = dependency.lambda.outputs.lambda_get_calendar_name
+  lambda_get_operations_arn    = dependency.lambda.outputs.lambda_get_operations_invoke_arn
+  lambda_get_operations_name   = dependency.lambda.outputs.lambda_get_operations_name
   lambda_get_positions_arn     = dependency.lambda.outputs.lambda_get_positions_invoke_arn
   lambda_get_positions_name    = dependency.lambda.outputs.lambda_get_positions_name
   lambda_get_settings_arn      = dependency.lambda.outputs.lambda_get_settings_invoke_arn

@@ -5,6 +5,7 @@ locals {
   aws_region                  = var.aws_region
   environment                 = var.environment
   lambda_get_calendar_arn     = var.lambda_get_calendar_arn
+  lambda_get_operations_arn   = var.lambda_get_operations_arn
   lambda_get_positions_arn    = var.lambda_get_positions_arn
   lambda_get_settings_arn     = var.lambda_get_settings_arn
   lambda_select_companies_arn = var.lambda_select_companies_arn
@@ -40,6 +41,14 @@ module "api_gateway" {
     "POST /companies" = {
       integration = {
         uri                    = local.lambda_select_companies_arn
+        payload_format_version = "2.0"
+        timeout_milliseconds   = 30000
+      }
+    }
+
+    "GET /operations" = {
+      integration = {
+        uri                    = local.lambda_get_operations_arn
         payload_format_version = "2.0"
         timeout_milliseconds   = 30000
       }

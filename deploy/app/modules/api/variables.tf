@@ -33,6 +33,16 @@ variable "lambda_get_calendar_name" {
   type        = string
 }
 
+variable "lambda_get_operations_arn" {
+  description = "ARN of the Lambda function for getting operations data"
+  type        = string
+}
+
+variable "lambda_get_operations_name" {
+  description = "Name of the Lambda function for getting operations data"
+  type        = string
+}
+
 variable "lambda_get_positions_arn" {
   description = "ARN of the Lambda function for getting positions"
   type        = string
