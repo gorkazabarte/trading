@@ -54,6 +54,52 @@ resource "aws_lambda_permission" "api_gateway_invoke_get_calendar" {
   source_arn    = "arn:aws:execute-api:${local.aws_region}:${local.aws_account_id}:*/*"
 }
 
+resource "aws_iam_policy" "lambda_policy_get_operations" {
+  name        = "${local.environment}-${local.app_name}-get-operations"
+  description = "Return last closed operations to API Gateway"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["s3:GetObject"]
+        Resource = "arn:aws:s3:::${local.aws_s3_bucket}/*"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["s3:ListBucket"]
+        Resource = "arn:aws:s3:::${local.aws_s3_bucket}"
+      }
+    ]
+  })
+}
+
+module "lambda_function_get_operations" {
+  source         = "terraform-aws-modules/lambda/aws"
+  attach_policy  = true
+  create_package = false
+  description    = "Return last closed operations to API Gateway"
+  environment_variables = {
+    S3_BUCKET = "${local.aws_s3_bucket}"
+  }
+  function_name  = "${local.environment}-${local.app_name}-get-operations"
+  image_uri      = "${local.aws_account_id}.dkr.ecr.${local.aws_region}.amazonaws.com/${local.environment}-${local.app_name}-get-operations:${local.app_version}"
+  memory_size	 = 256
+  timeout        = 180
+  package_type   = "Image"
+  policy         = aws_iam_policy.lambda_policy_get_calendar.arn
+  version        = "8.1.2"
+}
+
+resource "aws_lambda_permission" "api_gateway_invoke_get_operations" {
+  statement_id  = "AllowAPIGatewayGetCalendarInvoke"
+  action        = "lambda:InvokeFunction"
+  function_name = module.lambda_function_get_operations.lambda_function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "arn:aws:execute-api:${local.aws_region}:${local.aws_account_id}:*/*"
+}
+
 resource "aws_iam_policy" "lambda_policy_get_positions" {
   name        = "${local.environment}-${local.app_name}-get-positions"
   description = "Return open positions response to API Gateway"

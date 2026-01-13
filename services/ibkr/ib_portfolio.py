@@ -293,6 +293,15 @@ def mark_order_as_filled(position_data: Dict) -> None:
     position_data['order_status'] = 'FILLED'
 
 
+def update_bought_share_with_actual_price(ticker: str, actual_filled_price: float) -> None:
+    from core.state import get_share_data, add_bought_share
+
+    share_data = get_share_data(ticker)
+    if share_data:
+        share_data['buy_price'] = actual_filled_price
+        add_bought_share(ticker, share_data)
+
+
 def merge_positions_with_order_data(ibkr_positions_list: list, existing_positions: Dict) -> Dict:
     from datetime import datetime, timezone
     from utils.time_utils import get_current_date
@@ -306,12 +315,15 @@ def merge_positions_with_order_data(ibkr_positions_list: list, existing_position
             continue
 
         existing_data = existing_positions.get(ticker, {})
+        actual_filled_price = position.get('average_price')
+
+        update_bought_share_with_actual_price(ticker, actual_filled_price)
 
         merged[ticker] = {
             'ticker': ticker,
             'conid': position.get('conid'),
             'position': position.get('position'),
-            'average_price': position.get('average_price'),
+            'average_price': actual_filled_price,
             'market_price': position.get('market_price'),
             'market_value': position.get('market_value'),
             'unrealized_pnl': position.get('unrealized_pnl'),
@@ -419,10 +431,12 @@ def save_positions_to_files(positions_dict: Dict, year: int, month: int, day: in
         pass
 
 
-def update_all_positions_status(open_positions: Dict, filled_tickers: set, logger) -> bool:
+def update_all_positions_status(open_positions: Dict, ibkr_positions: list, filled_tickers: set, logger) -> bool:
     updated = False
+    ibkr_positions_by_ticker = {pos['ticker']: pos for pos in ibkr_positions if pos.get('ticker')}
+
     for ticker, position_data in open_positions.items():
-        if update_position_if_filled(ticker, position_data, filled_tickers, logger):
+        if update_position_if_filled(ticker, position_data, ibkr_positions_by_ticker, filled_tickers, logger):
             updated = True
     return updated
 
@@ -480,7 +494,7 @@ def update_order_fill_status(logger, s3_client):
         if pending_tickers:
             logger.info(f"Pending orders in open_positions.json: {', '.join(sorted(pending_tickers))}")
 
-        updated = update_all_positions_status(open_positions, filled_tickers, logger)
+        updated = update_all_positions_status(open_positions, ibkr_positions, filled_tickers, logger)
 
         if updated:
             save_and_upload_positions(open_positions, s3_client, logger)
@@ -491,10 +505,24 @@ def update_order_fill_status(logger, s3_client):
         logger.error(f"Error updating order fill status: {e}")
 
 
-def update_position_if_filled(ticker: str, position_data: Dict, filled_tickers: set, logger) -> bool:
+def update_position_if_filled(ticker: str, position_data: Dict, ibkr_positions_by_ticker: Dict, filled_tickers: set, logger) -> bool:
     if is_order_pending(position_data) and ticker in filled_tickers:
+        ibkr_position = ibkr_positions_by_ticker.get(ticker)
+        if ibkr_position:
+            actual_filled_price = ibkr_position.get('average_price')
+            if actual_filled_price:
+                position_data['average_price'] = actual_filled_price
+                position_data['market_price'] = ibkr_position.get('market_price', actual_filled_price)
+                position_data['market_value'] = ibkr_position.get('market_value', actual_filled_price * position_data.get('position', 0))
+                position_data['unrealized_pnl'] = ibkr_position.get('unrealized_pnl', 0.0)
+                update_bought_share_with_actual_price(ticker, actual_filled_price)
+                logger.info(f"{ticker} - Order FILLED at ${actual_filled_price:.2f} (order price was ${position_data.get('order_price', 'N/A')})")
+            else:
+                logger.info(f"{ticker} - Order FILLED, updating open_positions.json")
+        else:
+            logger.info(f"{ticker} - Order FILLED, updating open_positions.json")
+
         mark_order_as_filled(position_data)
-        logger.info(f"{ticker} - Order FILLED, updating open_positions.json")
         return True
     return False
 

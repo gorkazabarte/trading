@@ -1,10 +1,11 @@
 from json import dumps, loads
 from os import environ
 from datetime import datetime, timedelta
-import boto3
+
+from boto3 import client
 
 
-s3_client = boto3.client('s3')
+s3_client = client('s3')
 S3_BUCKET = environ.get('S3_BUCKET', 'dev-trading-data-storage')
 
 
