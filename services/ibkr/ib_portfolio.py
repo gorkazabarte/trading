@@ -373,14 +373,20 @@ def save_closed_positions_to_s3(year: int, month: int, day: int, s3_client, logg
     closed_positions = get_closed_positions()
 
     if not closed_positions:
+        logger.info("No closed positions to save for today")
         return
 
     total_profit = sum(p.get('profit', 0) for p in closed_positions)
-    logger.info(f"Saved {len(closed_positions)} closed position(s) to: ./files/{year}/{month:02d}/{day:02d}/closed_positions.json")
+    winning_trades = sum(1 for p in closed_positions if p.get('profit', 0) > 0)
+    losing_trades = sum(1 for p in closed_positions if p.get('profit', 0) < 0)
+
+    logger.info(f"Day Summary - Closed {len(closed_positions)} position(s)")
+    logger.info(f"Winning trades: {winning_trades} | Losing trades: {losing_trades}")
     logger.info(f"Total P/L for the day: ${total_profit:.2f}")
 
     local_path = f'./files/{year}/{month:02d}/{day:02d}/closed_positions.json'
     write_json_to_file(local_path, closed_positions)
+    logger.info(f"Saved closed positions to: {local_path}")
 
     s3_key = f'{year}/{month:02d}/{day:02d}/closed_positions.json'
 

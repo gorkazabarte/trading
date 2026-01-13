@@ -73,10 +73,12 @@ def calculate_return_percentage(sell_price: float, buy_price: float) -> float:
 def build_closed_position(ticker: str, buy_date: str, buy_price: float, sell_price: float, quantity: int) -> Dict:
     profit = calculate_profit(sell_price, buy_price, quantity)
     return_pct = calculate_return_percentage(sell_price, buy_price)
+    sell_date = get_current_date_string()
 
     return {
         "symbol": ticker,
         "buy_date": buy_date,
+        "sell_date": sell_date,
         "buy_price": round(buy_price, 2),
         "sell_price": round(sell_price, 2),
         "quantity": quantity,
