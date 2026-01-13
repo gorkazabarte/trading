@@ -88,14 +88,14 @@ jobs:
         run: |
           docker build --file ./lambda_get_calendar/Dockerfile -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG ./lambda_get_calendar
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-      - name: Build and push get positions
+      - name: Build and push get operations
         continue-on-error: true
         env:
           ECR_REGISTRY: ${{ steps.ecr.outputs.registry }}
-          ECR_REPOSITORY: "${{ inputs.environment }}-${{ inputs.app_name }}-get-positions"
+          ECR_REPOSITORY: "${{ inputs.environment }}-${{ inputs.app_name }}-get-operations"
           IMAGE_TAG: ${{ needs.prepare.outputs.version }}
         run: |
-          docker build --file ./lambda_get_positions/Dockerfile -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG ./lambda_get_positions
+          docker build --file ./lambda_get_operations/Dockerfile -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG ./lambda_get_operations
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
       - name: Build and push get positions
         continue-on-error: true
