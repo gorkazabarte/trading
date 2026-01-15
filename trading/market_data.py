@@ -104,6 +104,11 @@ def determine_order_type(current_price: float, threshold_price: float) -> str:
 
 
 def evaluate_buy_opportunity(ticker: str, current_price: float, closing_price: float, conid: int, logger: Logger) -> None:
+    from core.state import is_order_placement_allowed
+
+    if not is_order_placement_allowed():
+        return
+
     if is_ticker_bought(ticker):
         return
 

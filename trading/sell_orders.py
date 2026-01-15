@@ -205,8 +205,12 @@ def no_positions_exist(positions: List, logger: Logger) -> bool:
 
 
 def handle_end_of_day_sales(logger: Logger, s3_client) -> None:
+    from core.state import set_closing_phase
+
     if not should_close_positions():
         return
+
+    set_closing_phase()
 
     log_closing_all_positions(logger)
 

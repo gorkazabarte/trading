@@ -56,12 +56,23 @@ def log_monitoring_header(logger: Logger):
 
 
 def monitor_prices_and_positions(s3_client, logger: Logger):
+    from core.state import disable_order_placement, set_closing_phase, is_in_closing_phase
+
     log_monitoring_header(logger)
+
+    disable_order_placement()
+    logger.info("Order placement disabled - monitoring mode active")
 
     end_of_day_executed = False
 
     while should_continue_monitoring():
         try:
+            if is_close_to_market_close() and not is_in_closing_phase():
+                set_closing_phase()
+                logger.info("=" * 60)
+                logger.info("ENTERING CLOSING PHASE - No new orders will be placed")
+                logger.info("=" * 60)
+
             fetch_current_state(logger, s3_client)
             market_data_by_ticker = run_market_data_collection_cycle(s3_client, logger)
 
