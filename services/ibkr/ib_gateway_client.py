@@ -265,6 +265,44 @@ class IBGatewayClient:
             logger.error(f"Error checking open positions: {e}")
             return {'success': False, 'error': str(e), 'open_positions_count': 0}
 
+    def get_todays_executions(self) -> List[Dict]:
+        if not self.connected:
+            logger.error("Not connected to IB Gateway")
+            return []
+
+        try:
+            from datetime import datetime, timezone
+
+            fills = self.ib.fills()
+            todays_fills = []
+            today = datetime.now(timezone.utc).date()
+
+            for fill in fills:
+                fill_time = fill.time
+                if fill_time and fill_time.date() == today:
+                    execution = fill.execution
+                    contract = fill.contract
+
+                    fill_data = {
+                        'ticker': contract.symbol,
+                        'conid': contract.conId,
+                        'side': execution.side,
+                        'shares': execution.shares,
+                        'price': execution.price,
+                        'time': fill_time.isoformat(),
+                        'order_id': execution.orderId,
+                        'exec_id': execution.execId,
+                        'perm_id': execution.permId
+                    }
+                    todays_fills.append(fill_data)
+
+            logger.info(f"Retrieved {len(todays_fills)} execution(s) for today")
+            return todays_fills
+
+        except Exception as e:
+            logger.error(f"Error retrieving executions: {e}")
+            return []
+
     def _build_position_dict(self, position) -> Dict:
         contract = position.contract
 
