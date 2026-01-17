@@ -1,13 +1,13 @@
-import json
-import os
+from json import dumps, loads
+from os import environ
 from typing import Dict, Any
 
-import boto3
+from boto3 import client
 from botocore.exceptions import ClientError
 
-s3_client = boto3.client('s3')
+s3_client = client('s3')
 
-S3_BUCKET = os.environ.get('S3_BUCKET', 'dev-trading-data-storage')
+S3_BUCKET = environ.get('S3_BUCKET', 'dev-trading-data-storage')
 S3_KEY = 'open_positions.json'
 
 
@@ -18,7 +18,7 @@ def create_error_response(status_code: int, message: str) -> Dict[str, Any]:
             'Content-Type': 'application/json',
             'Access-Control-Allow-Origin': '*'
         },
-        'body': json.dumps({'error': message})
+        'body': dumps({'error': message})
     }
 
 
@@ -29,7 +29,7 @@ def create_success_response(data: Dict[str, Any]) -> Dict[str, Any]:
             'Content-Type': 'application/json',
             'Access-Control-Allow-Origin': '*'
         },
-        'body': json.dumps(data)
+        'body': dumps(data)
     }
 
 
@@ -37,7 +37,7 @@ def fetch_positions_from_s3() -> Dict[str, Any]:
     try:
         response = s3_client.get_object(Bucket=S3_BUCKET, Key=S3_KEY)
         content = response['Body'].read().decode('utf-8')
-        return json.loads(content)
+        return loads(content)
     except ClientError as e:
         error_code = e.response['Error']['Code']
         if error_code == 'NoSuchKey':
