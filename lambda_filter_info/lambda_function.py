@@ -41,6 +41,14 @@ def calculate_ninety_day_range() -> tuple[datetime, datetime]:
     return start_date, end_date
 
 
+def calculate_average_volume(historical_data) -> int:
+    return int(historical_data["Volume"].mean())
+
+
+def calculate_dollar_volume(avg_volume: int, current_price: float) -> float:
+    return round(avg_volume * current_price, 2)
+
+
 def calculate_percentage_change(start_price: float, end_price: float) -> float:
     return ((end_price - start_price) / start_price) * 100
 
@@ -62,7 +70,9 @@ def create_company_dictionary(symbol: str, symbol_data, performance: dict) -> di
         "percentage_change_90d": round(performance["percent_change_90d"], 4),
         "market_cap": extract_column_value(symbol_data, ["Market Cap", "market_cap", "MarketCap"]),
         "trailing_pe": performance.get("trailing_pe"),
-        "forward_pe": performance.get("forward_pe")
+        "forward_pe": performance.get("forward_pe"),
+        "avg_volume_3m": performance.get("avg_volume_3m"),
+        "dollar_volume": performance.get("dollar_volume")
     }
 
 
@@ -157,6 +167,8 @@ def fetch_stock_performance_data(ticker: str) -> dict:
     start_price, end_price, percentage_change = extract_price_range_from_history(historical_data)
     high_ninety_days, low_ninety_days = extract_price_extremes(historical_data)
     trailing_pe, forward_pe = fetch_pe_ratios(stock)
+    avg_volume = calculate_average_volume(historical_data)
+    dollar_volume = calculate_dollar_volume(avg_volume, current_price)
 
     return {
         "ticker": ticker,
@@ -167,7 +179,9 @@ def fetch_stock_performance_data(ticker: str) -> dict:
         "90d_high": high_ninety_days,
         "90d_low": low_ninety_days,
         "trailing_pe": trailing_pe,
-        "forward_pe": forward_pe
+        "forward_pe": forward_pe,
+        "avg_volume_3m": avg_volume,
+        "dollar_volume": dollar_volume
     }
 
 
