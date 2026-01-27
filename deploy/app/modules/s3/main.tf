@@ -34,3 +34,16 @@ resource "aws_s3_bucket_versioning" "versioning" {
     status = "Enabled"
   }
 }
+
+resource "aws_s3_bucket_lifecycle_configuration" "example" {
+  bucket = aws_s3_bucket.data.id
+
+  rule {
+    id     = "remove-objects-after-7-days"
+    status = "Enabled"
+
+    expiration {
+      days = 7
+    }
+  }
+}
