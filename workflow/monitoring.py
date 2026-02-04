@@ -11,10 +11,14 @@ from utils.time_utils import should_exit_at_market_close, is_close_to_market_clo
 from workflow.cleanup import verify_cleanup
 from workflow.reconciliation import save_closed_positions_if_exist
 
+WAIT_TIME_SECONDS: int = 5
 
 def fetch_current_state(logger: Logger, s3_client):
+    from services.ibkr.ib_order_monitor import detect_bracket_fills
+
     fetch_and_sync_positions(logger, s3_client)
     update_order_fill_status(logger, s3_client)
+    detect_bracket_fills(logger, s3_client)
 
 
 def handle_end_of_day_verification(logger: Logger, s3_client):
@@ -79,7 +83,7 @@ def monitor_prices_and_positions(s3_client, logger: Logger):
             if market_data_by_ticker:
                 end_of_day_executed = process_market_data(s3_client, logger, market_data_by_ticker, end_of_day_executed)
 
-            sleep_one_minute()
+            sleep_n_time(WAIT_TIME_SECONDS)
 
         except Exception as e:
             logger.error(f"Error in monitoring loop: {e}")
@@ -105,8 +109,8 @@ def should_execute_end_of_day(end_of_day_executed: bool) -> bool:
     return is_close_to_market_close() and not end_of_day_executed
 
 
-def sleep_one_minute():
-    sleep(60)
+def sleep_n_time(n: int):
+    sleep(n)
 
 
 def update_and_log_market_data(s3_client, logger: Logger, market_data_by_ticker: dict):
