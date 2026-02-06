@@ -8,6 +8,7 @@ locals {
   lambda_get_operations_arn   = var.lambda_get_operations_arn
   lambda_get_positions_arn    = var.lambda_get_positions_arn
   lambda_get_settings_arn     = var.lambda_get_settings_arn
+  lambda_get_status_arn       = var.lambda_get_status_arn
   lambda_select_companies_arn = var.lambda_select_companies_arn
   lambda_update_settings_arn  = var.lambda_update_settings_arn
 }
@@ -65,6 +66,14 @@ module "api_gateway" {
     "GET /settings" = {
       integration = {
         uri                    = local.lambda_get_settings_arn
+        payload_format_version = "2.0"
+        timeout_milliseconds   = 30000
+      }
+    }
+
+    "GET /status" = {
+      integration = {
+        uri                    = local.lambda_get_status_arn
         payload_format_version = "2.0"
         timeout_milliseconds   = 30000
       }

@@ -369,3 +369,50 @@ resource "aws_lambda_permission" "api_gateway_invoke_get_settings" {
   principal     = "apigateway.amazonaws.com"
   source_arn    = "arn:aws:execute-api:${local.aws_region}:${local.aws_account_id}:*/*"
 }
+
+resource "aws_iam_policy" "lambda_policy_get_status" {
+  name        = "${local.environment}-${local.app_name}-get-status"
+  description = "AWS Lambda policy to get status.json from S3 bucket"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["s3:ListBucket"]
+        Resource = "arn:aws:s3:::${local.aws_s3_bucket}"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["s3:GetObject"]
+        Resource = "arn:aws:s3:::${local.aws_s3_bucket}/status.json"
+      }
+    ]
+  })
+}
+
+module "lambda_function_get_status" {
+  source         = "terraform-aws-modules/lambda/aws"
+  attach_policy  = true
+  create_package = false
+  description    = "AWS Lambda function to get status from S3 bucket"
+  environment_variables = {
+    S3_BUCKET = "${local.aws_s3_bucket}"
+  }
+  function_name  = "${local.environment}-${local.app_name}-get-status"
+  image_uri      = "${local.aws_account_id}.dkr.ecr.${local.aws_region}.amazonaws.com/${local.environment}-${local.app_name}-get-status:${local.app_version}"
+  memory_size    = 256
+  timeout        = 30
+  package_type   = "Image"
+  policy         = aws_iam_policy.lambda_policy_get_status.arn
+  version        = "8.1.2"
+}
+
+resource "aws_lambda_permission" "api_gateway_invoke_get_status" {
+  statement_id  = "AllowAPIGatewayGetStatusInvoke"
+  action        = "lambda:InvokeFunction"
+  function_name = module.lambda_function_get_status.lambda_function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "arn:aws:execute-api:${local.aws_region}:${local.aws_account_id}:*/*"
+}
+

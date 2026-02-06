@@ -2,15 +2,18 @@
 Monitoring workflow for tracking positions and market data.
 """
 from logging import Logger
-from time import sleep
+from time import sleep, time
 
+from core.config import S3_BUCKET
 from services.ibkr.ib_portfolio import fetch_and_sync_positions, update_order_fill_status, log_order_statuses, update_market_prices
 from trading.market_data import run_market_data_collection_cycle, log_positions_summary
 from trading.sell_orders import handle_end_of_day_sales
+from utils.aws_client import upload_status_to_s3
 from utils.time_utils import should_exit_at_market_close, is_close_to_market_close
 from workflow.cleanup import verify_cleanup
 from workflow.reconciliation import save_closed_positions_if_exist
 
+STATUS_UPLOAD_INTERVAL_SECONDS: int = 900
 WAIT_TIME_SECONDS: int = 5
 
 def fetch_current_state(logger: Logger, s3_client):
@@ -68,6 +71,7 @@ def monitor_prices_and_positions(s3_client, logger: Logger):
     logger.info("Order placement disabled - monitoring mode active")
 
     end_of_day_executed = False
+    last_status_upload_time = 0
 
     while should_continue_monitoring():
         try:
@@ -81,7 +85,9 @@ def monitor_prices_and_positions(s3_client, logger: Logger):
             market_data_by_ticker = run_market_data_collection_cycle(s3_client, logger)
 
             if market_data_by_ticker:
-                end_of_day_executed = process_market_data(s3_client, logger, market_data_by_ticker, end_of_day_executed)
+                end_of_day_executed, last_status_upload_time = process_market_data(
+                    s3_client, logger, market_data_by_ticker, end_of_day_executed, last_status_upload_time
+                )
 
             sleep_n_time(WAIT_TIME_SECONDS)
 
@@ -89,16 +95,22 @@ def monitor_prices_and_positions(s3_client, logger: Logger):
             logger.error(f"Error in monitoring loop: {e}")
 
 
-def process_market_data(s3_client, logger: Logger, market_data_by_ticker: dict, end_of_day_executed: bool) -> bool:
+def process_market_data(s3_client, logger: Logger, market_data_by_ticker: dict, end_of_day_executed: bool, last_status_upload_time: float) -> tuple:
+    current_time = time()
+
+    if should_upload_status(current_time, last_status_upload_time):
+        upload_status_to_s3(s3_client, S3_BUCKET, "Monitor")
+        last_status_upload_time = current_time
+
     update_and_log_market_data(s3_client, logger, market_data_by_ticker)
 
     if should_execute_end_of_day(end_of_day_executed):
         handle_end_of_day_verification(logger, s3_client)
-        return True
+        return True, last_status_upload_time
 
     save_closed_positions_if_exist(s3_client, logger)
     log_positions_summary(market_data_by_ticker, logger)
-    return end_of_day_executed
+    return end_of_day_executed, last_status_upload_time
 
 
 def should_continue_monitoring() -> bool:
@@ -107,6 +119,10 @@ def should_continue_monitoring() -> bool:
 
 def should_execute_end_of_day(end_of_day_executed: bool) -> bool:
     return is_close_to_market_close() and not end_of_day_executed
+
+
+def should_upload_status(current_time: float, last_upload_time: float) -> bool:
+    return (current_time - last_upload_time) >= STATUS_UPLOAD_INTERVAL_SECONDS
 
 
 def sleep_n_time(n: int):

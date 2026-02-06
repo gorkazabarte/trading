@@ -115,6 +115,15 @@ jobs:
         run: |
           docker build --file ./lambda_get_settings/Dockerfile -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG ./lambda_get_settings
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+      - name: Build and push get status
+        continue-on-error: true
+        env:
+          ECR_REGISTRY: ${{ steps.ecr.outputs.registry }}
+          ECR_REPOSITORY: "${{ inputs.environment }}-${{ inputs.app_name }}-get-status"
+          IMAGE_TAG: ${{ needs.prepare.outputs.version }}
+        run: |
+          docker build --file ./lambda_get_status/Dockerfile -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG ./lambda_get_status
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
       - name: Build and push filter info
         continue-on-error: true
         env:

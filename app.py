@@ -6,7 +6,7 @@ from urllib3.exceptions import InsecureRequestWarning
 from core.config import S3_BUCKET
 from logs.setup import setup_logging
 from services.ibkr.ib_gateway_client import disconnect_ib_client
-from utils.aws_client import create_s3_client
+from utils.aws_client import create_s3_client, upload_status_to_s3
 from workflow.connection import connect_to_ib_gateway
 from workflow.download import download_required_files
 from workflow.initial_orders import place_initial_orders
@@ -54,6 +54,7 @@ def run_trading_workflow(s3_client, logger: Logger):
         monitor_prices_and_positions(s3_client, logger)
 
         log_market_closed_exit(logger)
+        upload_status_to_s3(s3_client, S3_BUCKET, "End")
         disconnect_ib_client()
         exit(0)
 
